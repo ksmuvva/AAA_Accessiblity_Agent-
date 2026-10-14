@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+reports/
+nvda_bridge/node_modules/
+evals/results/
+repomix-output.xml
+diagnostics/
+.claude/

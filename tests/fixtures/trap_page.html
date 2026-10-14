@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head><title>Keyboard trap</title></head>
+  <body>
+    <main>
+      <h1>Trap</h1>
+      <label for="before">Before</label> <input id="before">
+      <!-- 2.1.2: swallows Tab, so keyboard users cannot leave. -->
+      <label for="trap">Trap</label>
+      <input id="trap" onkeydown="if (event.key === 'Tab') event.preventDefault()">
+      <label for="after">After</label> <input id="after">
+    </main>
+  </body>
+</html>

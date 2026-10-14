@@ -1,0 +1,508 @@
+"""Shared state passed to every tool via the Agents SDK run context.
+
+One AuditContext (the root) owns the browser. `fork(owner)` makes a child context that shares every result with the
+root (findings, probe cache, tool runs, ...) but drives its own browser page under its own lock, so several agents can
+work on the same page, or on different pages, at the same time (`run_parallel`, `run_agents`).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import uuid
+from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass, field, fields
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING, AsyncIterator, Awaitable, Callable, Iterator, Literal, TypeVar
+from urllib.parse import urlparse
+
+from agents import RunContextWrapper
+from playwright.async_api import Browser, BrowserContext, Page, Playwright, Request, Route, async_playwright
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
+from agent_access.catalogue.catalogue import LEVEL_ORDER, Catalogue, Rule, load_catalogue
+from agent_access.jsassets import js
+from agent_access.models import Finding
+
+if TYPE_CHECKING:
+    from agents import Agent, RunConfig, RunResult
+
+DEFAULT_VIEWPORT = {"width": 1280, "height": 800}
+NAVIGATION_TIMEOUT_MS = 30_000
+SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+# Installed before any page script runs: logs listeners, timers, and window.open (read by the instrumentation probe).
+INSTRUMENT_JS = js("page/instrument")
+# Probe-level guard tripwires (no action) stop being stored past this many; probes block every form post they
+# trigger. Records of an agent's blocked actions are never capped: they are what the report shows.
+MAX_TRIPWIRES = 500
+
+T = TypeVar("T")
+# How the lead reaches specialists (G2 imports this): SDK handoffs, or the delegate tools of code mode.
+Delegation = Literal["handoffs", "tools"]
+
+
+def no_page() -> dict:
+    return {"error": "No page is loaded yet."}
+
+
+async def call_tool(ctx: RunContextWrapper["AuditContext"], fn: Callable[..., dict | Awaitable[dict]], *args) -> str:
+    """The body of every browser-facing agent tool: needs a loaded page, holds the lock, returns JSON.
+    `fn(audit, *args)` may be sync or async.
+
+    Delegate tools must not use this: the specialist's own tools take the lock, so holding it would deadlock.
+    """
+    audit = ctx.context
+    if not audit.has_page():
+        return json.dumps(no_page())
+    async with audit.lock:
+        result = fn(audit, *args)
+        return json.dumps(await result if inspect.isawaitable(result) else result)
+
+
+def is_state_key(page_key: str) -> bool:
+    return " [" in page_key
+
+
+def base_page_key(page_key: str) -> str:
+    """The page a state key belongs to: "https://x/cart [step 2]" -> "https://x/cart" (a plain key is returned as is)."""
+    return page_key.split(" [", 1)[0]
+
+
+@dataclass
+class AuditContext:
+    """Holds the browser session and everything collected during one run.
+
+    Use as an async context manager so the browser is always closed:
+
+        async with AuditContext() as audit:
+            await Runner.run(agent, prompt, context=audit)
+
+    `audit.fork(owner)` gives a child context for a concurrent agent: it shares every result with this one and
+    owns only its browser page, lock and page cursor (see _OWN below).
+    """
+
+    headless: bool = True
+    # Free-form interaction tools (click/fill/press) can change state on real sites, so they are opt-in.
+    allow_interaction: bool = False
+    # URL prefixes that free-form interaction may send non-GET requests to (e.g. a test checkout's step API).
+    # Everything else is blocked while those tools act, so a click can't submit, buy, or delete for real.
+    allowed_writes: tuple[str, ...] = ()
+    # Free-form interaction may follow links to other hosts only when set (network_guard blocks them otherwise).
+    allow_offsite: bool = False
+    # Send agent traces to the OpenAI tracing dashboard (they include page content and screenshots).
+    tracing: bool = True
+    output_dir: Path = Path("reports")
+    # Conformance target: "A", "AA", or "AAA". Criteria above it are still tested and reported separately.
+    target_level: str = "AA"
+    # Screen reader for the screen-reader engine: "nvda" (real NVDA via Guidepup; needs a visible browser),
+    # "emulated" (Chromium accessibility tree), or "auto" (NVDA when installed and the browser is visible).
+    screen_reader: str = "auto"
+    # "eager": every probe and rule runs on every page before an agent sees it; "lazy": agents choose (G6).
+    measurement: str = "eager"
+    # How the lead reaches specialists: SDK "handoffs", or the delegate "tools" (code mode, --delegation tools; G2).
+    delegation: Delegation = "handoffs"
+    catalogue: Catalogue = field(default_factory=load_catalogue)
+    findings: list[Finding] = field(default_factory=list)
+    current_url: str | None = None
+    # Every page audited in this run, in visit order.
+    pages: list[str] = field(default_factory=list)
+    # Raw HTML for pages loaded with load_html, so they can be restored after interaction tests.
+    inline_html: dict[str, str] = field(default_factory=dict)
+    # Tests already tried per page (tool or specialist names), used by the planning loop.
+    attempted: dict[str, set[str]] = field(default_factory=dict)
+    # Navigation structure per page, used to compare consistency across pages.
+    nav_snapshots: dict[str, dict] = field(default_factory=dict)
+    # Pages that have had the full automated sweep, and a log of every rule run (agent_access/engine.py).
+    swept: set[str] = field(default_factory=set)
+    tool_runs: list[dict] = field(default_factory=list)
+    # Probe results cached per page (agent_access/probes), so the 86 rules share one run of each probe.
+    observations: dict[str, dict] = field(default_factory=dict)
+    # Each rule's latest details per page ({page: {rule name: details}}), served by get_criterion.
+    rule_details: dict[str, dict] = field(default_factory=dict)
+    # Engine versions and modes used in this run, for the report.
+    engines: dict[str, str] = field(default_factory=dict)
+    # Coverage gaps the code detected (a page the lead left open, a specialist that skipped criteria).
+    warnings: list[str] = field(default_factory=list)
+    # Pages changed by free-form interaction since they were loaded: their cached engine results are stale.
+    # Per context: a fork's page can be changed while the root's copy is still pristine.
+    dirty: set[str] = field(default_factory=set)
+    # Agentic mode (see .claude/AGENTIC_PLAN.md): the run's Budget (G1), the planner's decisions (G1), guard tripwires
+    # recorded by network_guard and the interaction tools (G5), the handoff log (G2), and the site/lesson memory (G4).
+    budget: object | None = None
+    plan_log: list[dict] = field(default_factory=list)
+    tripwires: list[dict] = field(default_factory=list)
+    handoffs: list[dict] = field(default_factory=list)
+    memory: object | None = field(default=None, repr=False)
+    # Identifies this run (memory scopes host-less pages and caps notes by it); forks share their root's.
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    nvda: object | None = field(default=None, repr=False)
+    # Model tools may be called in parallel; browser tools must not drive the page concurrently.
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    # None on the root context; a fork carries the name it was forked under (e.g. "Forms specialist").
+    owner: str | None = None
+
+    _playwright: Playwright | None = field(default=None, init=False, repr=False)
+    _browser: Browser | None = field(default=None, init=False, repr=False)
+    _context: BrowserContext | None = field(default=None, init=False, repr=False)
+    _page: Page | None = field(default=None, init=False, repr=False)
+    # True while restore_page navigates, so an active network_guard lets that one navigation through.
+    _restoring: bool = field(default=False, init=False, repr=False)
+    # Forks by owner name (kept on the root), and one lock per (page key, probe) so concurrent forks measure once.
+    _forks: dict[str, "AuditContext"] = field(default_factory=dict, init=False, repr=False)
+    _probe_locks: dict[tuple, asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
+    _root: "AuditContext | None" = field(default=None, init=False, repr=False)
+
+    async def __aenter__(self) -> AuditContext:
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self.close()
+
+    # ------------------------------------------------------------------ browser pages and forks
+
+    async def page(self) -> Page:
+        """Return this context's page, launching the browser on first use (a fork's page: `fork(owner).page()`)."""
+        if self._page is None:
+            if self._root is not None:
+                await self._root.page()  # the root launches the browser; a fork opens a page in its context
+                self._page = await self._context.new_page()
+            else:
+                self._playwright = await async_playwright().start()
+                self._browser = await self._playwright.chromium.launch(headless=self.headless)
+                # bypass_csp lets us inject axe-core into pages with strict Content-Security-Policy.
+                self._context = await self._browser.new_context(viewport=DEFAULT_VIEWPORT, bypass_csp=True)
+                await self._context.add_init_script(INSTRUMENT_JS)
+                self._page = await self._context.new_page()
+        return self._page
+
+    def fork(self, owner: str) -> AuditContext:
+        """A child context for a concurrent agent, named `owner` (idempotent per name).
+
+        It shares every result with the root (reads and writes of shared attributes go to the root) and owns its own
+        browser page (same browser context, so cookies and storage are shared), lock, page cursor and dirty set. Its
+        page is opened by its first page() or restore_page(); until then has_page() is False.
+        """
+        if self._root is not None:
+            return self._root.fork(owner)
+        if owner not in self._forks:
+            child = _ForkedContext.__new__(_ForkedContext)
+            own = {"_root": self, "owner": owner, "current_url": None, "dirty": set(), "lock": asyncio.Lock(),
+                   "_page": None, "_restoring": False}
+            for name, value in own.items():
+                object.__setattr__(child, name, value)
+            self._forks[owner] = child
+        return self._forks[owner]
+
+    def can_fork(self) -> bool:
+        """Parallel work drives several pages at once. Real NVDA reads the foreground window, so with it only one
+        page may be driven, and callers fall back to sequential work on the root."""
+        return self.nvda is None and self.screen_reader != "nvda"
+
+    def probe_lock(self, page_key: str | None, probe: str) -> asyncio.Lock:
+        """The lock concurrent collect() calls for one (page, probe) share, so the probe runs once."""
+        return self._probe_locks.setdefault((page_key, probe), asyncio.Lock())
+
+    def target_rules(self) -> list[Rule]:
+        return self.catalogue.up_to_level(self.target_level)
+
+    def beyond_target_rules(self) -> list[Rule]:
+        return [r for r in self.catalogue.rules if LEVEL_ORDER[r.level] > LEVEL_ORDER[self.target_level]]
+
+    @property
+    def executable_path(self) -> str | None:
+        return self._playwright.chromium.executable_path if self._playwright else None
+
+    def has_page(self) -> bool:
+        return self._page is not None and self.current_url is not None
+
+    def set_current(self, page_url: str) -> None:
+        self.current_url = page_url
+        if page_url not in self.pages:
+            self.pages.append(page_url)
+
+    @contextmanager
+    def at_page(self, page_key: str | None) -> Iterator[None]:
+        """Point the page cursor (current_url) at `page_key` for a block, and always put it back afterwards.
+
+        Engines and tools record findings under current_url, and some (restore_page, interaction) move it.
+        """
+        previous = self.current_url
+        self.current_url = page_key
+        try:
+            yield
+        finally:
+            self.current_url = previous
+
+    def mark_attempted(self, test_id: str) -> None:
+        if self.current_url is not None:
+            self.attempted.setdefault(self.current_url, set()).add(test_id)
+
+    def attempted_on(self, page_url: str) -> set[str]:
+        return self.attempted.get(page_url, set())
+
+    def add_findings(self, findings: list[Finding]) -> None:
+        self.findings.extend(findings)
+
+    def replace_findings(
+        self, page_url: str, source: str | None, findings: list[Finding], check_id: str | None = None
+    ) -> None:
+        """Drop earlier findings from `source` (any source if None; optionally one `check_id`) for this page,
+        then add new ones. Re-running a scan, check, or criterion tool therefore replaces its results.
+        """
+
+        def is_stale(f: Finding) -> bool:
+            return (f.page_url == page_url and (source is None or f.source == source)
+                    and (check_id is None or f.check_id == check_id))
+
+        self.findings = [f for f in self.findings if not is_stale(f)]
+        self.findings.extend(findings)
+
+    def findings_for(self, page_url: str) -> list[Finding]:
+        return [f for f in self.findings if f.page_url == page_url]
+
+    def can_restore(self, page_key: str | None = None) -> bool:
+        """Process states (labelled with label_page_state) can't be recreated by reloading."""
+        key = page_key or self.current_url
+        return key is not None and not is_state_key(key)
+
+    async def restore_page(self, page_key: str | None = None) -> bool:
+        """Reload a page to undo side effects of interaction tests. Returns False if it can't be restored."""
+        key = page_key or self.current_url
+        if key is None or is_state_key(key):
+            return False
+        page = await self.page()
+        # Probes restore the page from inside network_guard, which answers main-frame navigations with 204 (and a
+        # 204 to a goto surfaces as net::ERR_ABORTED). The flag tells the guard to let this reload through.
+        self._restoring = True
+        try:
+            if key in self.inline_html:
+                await self.set_inline_content(self.inline_html[key])
+            elif key.startswith(("http://", "https://")):
+                await self._reload(page, key)
+            else:
+                return False
+        finally:
+            self._restoring = False
+        self.current_url = key
+        self.dirty.discard(key)
+        return True
+
+    async def _reload(self, page: Page, url: str) -> None:
+        """goto with the two recoveries real sites need: a load timeout is retried waiting only for the document
+        (heavy sites keep loading ads and trackers), and net::ERR_ABORTED (a client-side navigation started by the
+        probe superseded our reload, seen on angular.dev and vuejs.org) is retried once."""
+        for attempt in range(2):
+            try:
+                await page.goto(url, wait_until="load", timeout=NAVIGATION_TIMEOUT_MS)
+                return
+            except PlaywrightTimeoutError:
+                await page.goto(url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
+                return
+            except PlaywrightError as exc:
+                if "ERR_ABORTED" not in str(exc) or attempt:
+                    raise
+                await page.wait_for_timeout(500)  # let the competing navigation finish before retrying
+
+    async def set_inline_content(self, html: str) -> None:
+        """Load raw HTML into a fresh document.
+
+        set_content alone reuses the current window, so re-running a page's scripts fails on
+        redeclared top-level `const`/`let` names and its event listeners never attach. Navigating to
+        about:blank first gives the scripts a fresh global scope.
+        """
+        page = await self.page()
+        await page.goto("about:blank")
+        await page.set_content(html, wait_until="load", timeout=NAVIGATION_TIMEOUT_MS)
+
+    def _trip(self, kind: str, request: Request, *, agent_action: bool, tool: str | None, offsite: bool = False) -> None:
+        """Record a blocked request in tripwires (same keys as agent_access.tripwires.record_tripwire).
+
+        A probe's guard blocks form posts on purpose: those records have no "action" and stay out of the report
+        (tripwire_report shows records with one). A block of something an agent did (free-form interaction, its own
+        script) is a real safety event: kind "write_blocked" / "offsite_navigation", action "blocked".
+        """
+        if agent_action:
+            kind = "offsite_navigation" if offsite else "write_blocked"
+        elif sum(1 for t in self.tripwires if t.get("action") is None) >= MAX_TRIPWIRES:
+            return  # only the expected probe blocks are capped; an agent's blocked action is always kept
+        self.tripwires.append({"time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                               "page_url": self.current_url, "owner": self.owner, "kind": kind,
+                               "detail": f"{request.method} {request.url}" + (" (offsite)" if offsite else ""),
+                               "action": "blocked" if agent_action else None, "agent": None, "tool": tool})
+
+    @asynccontextmanager
+    async def network_guard(
+        self, *, allow_navigation: bool = False, allow_writes: tuple[str, ...] = (),
+        source: Literal["probe", "agent"] = "probe", tool: str | None = None,
+    ) -> AsyncIterator[list[str]]:
+        """Block requests that could change server state or leave the page, while a test interacts with it.
+
+        By default blocks every non-GET request (form posts, API writes) and every main-frame navigation.
+        Free-form interaction passes allow_navigation=True (GET navigations, e.g. following a "Next" link,
+        go through, but only to the page's own host unless allow_offsite is set) and the user's allow_writes URL
+        prefixes (non-GET requests to them go through).
+        Yields the list of blocked requests, which tests use to tell that a form *tried* to submit. Every blocked
+        request is also recorded in `tripwires`: with source="agent" (free-form interaction, an agent's own script;
+        `tool` names the caller) as a reportable safety event with an action, with the default source="probe" as an
+        expected block with none.
+        """
+        page = await self.page()
+        blocked: list[str] = []
+        host = urlparse(page.url).netloc
+        agent_action = source == "agent" or allow_navigation
+
+        async def handler(route: Route, request: Request) -> None:
+            safe = request.method in SAFE_METHODS
+            allowed = safe or (bool(allow_writes) and request.url.startswith(allow_writes))
+            if request.is_navigation_request() and request.frame == page.main_frame:
+                # Free-form interaction may follow GET links; restore_page's own reload (and its redirects) always may.
+                offsite = bool(host) and urlparse(request.url).netloc not in ("", host) and not self.allow_offsite
+                if allowed and (self._restoring and safe or allow_navigation and not offsite):
+                    await route.continue_()
+                    return
+                # 204 No Content makes the browser stay on the current page. Aborting instead would
+                # replace the page with a "can't reach this site" error page.
+                blocked.append(f"{request.method} {request.url} (navigation)")
+                self._trip("blocked_navigation", request, agent_action=agent_action, tool=tool, offsite=allowed and offsite)
+                await route.fulfill(status=204, body="")
+            elif not allowed:
+                blocked.append(f"{request.method} {request.url}")
+                self._trip("blocked_write", request, agent_action=agent_action, tool=tool)
+                await route.abort()
+            else:
+                await route.continue_()
+
+        await page.route("**/*", handler)
+        try:
+            yield blocked
+        finally:
+            await page.unroute("**/*", handler)
+
+    async def close(self) -> None:
+        if self._root is not None:  # a fork: close only its page and forget it
+            if self._page is not None:
+                try:
+                    await self._page.close()
+                except Exception:
+                    pass
+                self._page = None
+            self._root._forks.pop(self.owner, None)
+            return
+        for fork in list(self._forks.values()):
+            await fork.close()
+        if self.nvda is not None:
+            try:
+                await self.nvda.stop()
+            except Exception:
+                pass
+            self.nvda = None
+        if self._browser is not None:
+            await self._browser.close()
+        if self._playwright is not None:
+            await self._playwright.stop()
+        self._playwright = self._browser = self._context = self._page = None
+
+
+# What a fork keeps for itself; every other attribute lives on the root and is read and written there.
+_OWN = frozenset({"current_url", "lock", "dirty", "owner", "_page", "_restoring", "_root"})
+_SHARED = frozenset(f.name for f in fields(AuditContext)) - _OWN
+
+
+class _ForkedContext(AuditContext):
+    """A fork made by AuditContext.fork(): never constructed directly (the dataclass __init__ would reset the root)."""
+
+    def __getattribute__(self, name: str):
+        if name in _SHARED:
+            return getattr(object.__getattribute__(self, "_root"), name)
+        return object.__getattribute__(self, name)
+
+    def __setattr__(self, name: str, value) -> None:
+        if name in _SHARED:
+            setattr(object.__getattribute__(self, "_root"), name, value)
+        else:
+            object.__setattr__(self, name, value)
+
+
+# ---------------------------------------------------------------------- parallel work on forks
+
+def _keys_for(jobs: dict, page_key) -> dict[str, str | None]:
+    if isinstance(page_key, dict):
+        return {name: page_key.get(name) for name in jobs}
+    return {name: page_key for name in jobs}
+
+
+async def run_parallel(
+    audit: AuditContext,
+    jobs: dict[str, Callable[[AuditContext], Awaitable[T]]],
+    *,
+    page_key: str | dict[str, str | None] | None = None,
+) -> dict[str, T | Exception]:
+    """Run `jobs` ({name: async fn(context)}) at the same time, each on its own fork of `audit` with `page_key`
+    loaded (default: the root's current page; a dict gives each job its own key, None meaning the job loads a page
+    itself). Errors are isolated: a failed job returns its exception, the others' results stand. The fork pages
+    are closed afterwards; the root's page and cursor are untouched. Everything a job records lands in the shared
+    findings, tool runs and rule details.
+
+    Falls back to running the jobs one after another on `audit` itself (restoring each page first) when forks can't
+    be used: real NVDA in use (one foreground window), a process state that can't be reloaded, or a single job.
+    """
+    keys = _keys_for(jobs, audit.current_url if page_key is None else page_key)
+    restorable = all(k is None or audit.can_restore(k) for k in keys.values())
+    if len(jobs) < 2 or not audit.can_fork() or not restorable:
+        results: dict[str, T | Exception] = {}
+        for name, job in jobs.items():
+            key = keys[name]
+            try:
+                if key is not None and (audit.current_url != key or key in audit.dirty) and not await audit.restore_page(key):
+                    raise RuntimeError(f"{key} could not be restored for {name}")
+                results[name] = await job(audit)
+            except Exception as exc:
+                results[name] = exc
+        return results
+
+    async def on_fork(name: str, job) -> T:
+        fork = audit.fork(name)
+        try:
+            key = keys[name]
+            if key is not None and not await fork.restore_page(key):
+                raise RuntimeError(f"{key} could not be restored for {name}")
+            return await job(fork)
+        finally:
+            await fork.close()
+
+    gathered = await asyncio.gather(*(on_fork(name, job) for name, job in jobs.items()), return_exceptions=True)
+    return dict(zip(jobs, gathered))
+
+
+async def run_agents(
+    audit: AuditContext,
+    runs: list[tuple["Agent", str]],
+    *,
+    max_turns: int = 80,
+    page_key: str | None = None,
+    run_config: Callable[[AuditContext, str], "RunConfig"] | None = None,
+) -> list["RunResult | Exception"]:
+    """Run several SDK agents on one page at once, each on its own fork (named after the agent), and return their
+    RunResults in input order (an Exception where that run failed). `run_config(context, workflow_name)` builds
+    each run's RunConfig (pass agent_access.team.runtime.run_config). Same fallbacks as run_parallel; jobs on
+    different pages use run_parallel directly."""
+    from agents import Runner  # imported here: context.py is imported by the modules that import the SDK runner
+
+    def job_for(agent, prompt, name):
+        async def job(context: AuditContext):
+            kwargs = {"run_config": run_config(context, f"WCAG audit: {name}")} if run_config else {}
+            return await Runner.run(agent, prompt, context=context, max_turns=max_turns, **kwargs)
+        return job
+
+    jobs: dict[str, Callable] = {}
+    for agent, prompt in runs:
+        name, n = agent.name, 1
+        while name in jobs:
+            n += 1
+            name = f"{agent.name} {n}"
+        jobs[name] = job_for(agent, prompt, name)
+    results = await run_parallel(audit, jobs, page_key=page_key)
+    return [results[name] for name in jobs]

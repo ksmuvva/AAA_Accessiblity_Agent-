@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Hover content</title>
+    <style>
+      body { font: 16px/1.5 sans-serif; margin: 2rem; }
+      p { margin: 0 0 1rem; }
+      /* Bad: tooltip is a sibling 40px away, so moving the pointer to it un-hovers the trigger,
+         and nothing handles Escape. It covers the paragraph below. */
+      .bad-wrap { position: relative; }
+      .bad-tip { display: none; position: absolute; top: 60px; left: 0; background: #222; color: #fff; padding: 8px; width: 300px; }
+      #bad-trigger:hover + .bad-tip, #bad-trigger:focus + .bad-tip { display: block; }
+      /* Good: tooltip is inside the hovered wrapper (hoverable) and Escape hides it. */
+      .good-wrap { position: relative; display: inline-block; margin-top: 140px; }
+      .good-tip { display: none; position: absolute; top: 100%; left: 0; background: #222; color: #fff; padding: 8px; width: 300px; }
+      .good-wrap:hover .good-tip, .good-wrap:focus-within .good-tip { display: block; }
+      .good-wrap.dismissed .good-tip { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Tooltips</h1>
+      <div class="bad-wrap">
+        <button id="bad-trigger" aria-describedby="bad-tip">Shipping info</button>
+        <div class="bad-tip" id="bad-tip" role="tooltip">Free shipping on orders over 50 dollars to most countries.</div>
+        <p>Paragraph under the tooltip that gets covered when it shows.</p>
+        <p>Second paragraph of ordinary content.</p>
+      </div>
+      <div class="good-wrap" id="good-wrap">
+        <button id="good-trigger" aria-describedby="good-tip">Returns info</button>
+        <div class="good-tip" id="good-tip" role="tooltip">Returns are free within 30 days.</div>
+      </div>
+      <p>Content after.</p>
+    </main>
+    <script>
+      const wrap = document.getElementById('good-wrap');
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && (wrap.matches(':hover') || wrap.contains(document.activeElement))) wrap.classList.add('dismissed');
+      });
+      wrap.addEventListener('mouseleave', () => wrap.classList.remove('dismissed'));
+      wrap.addEventListener('focusout', () => wrap.classList.remove('dismissed'));
+    </script>
+  </body>
+</html>

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head><title>Forms</title></head>
+  <body>
+    <main>
+      <h1>Forms</h1>
+
+      <!-- Bad: novalidate + a submit handler that silently does nothing. -->
+      <form id="silent" novalidate>
+        <label for="s-email">Email</label>
+        <input id="s-email" name="email" type="email" required>
+        <input name="phone" type="tel" placeholder="Phone">
+        <button type="submit">Join</button>
+      </form>
+
+      <!-- Good: inline errors with aria-invalid, aria-describedby, and a live region. -->
+      <form id="helpful" novalidate>
+        <label for="h-email">Email address</label>
+        <input id="h-email" name="email" type="email" autocomplete="email" required aria-describedby="h-email-error">
+        <p id="h-email-error" hidden></p>
+        <div role="alert" id="h-summary"></div>
+        <button type="submit">Subscribe</button>
+      </form>
+
+      <!-- Native browser validation (no novalidate): the browser shows a message and blocks submission. -->
+      <form id="native" action="https://example.com/signup" method="post">
+        <label for="n-name">Your name</label>
+        <input id="n-name" name="name" required autocomplete="name">
+        <button type="submit">Sign up</button>
+      </form>
+
+      <!-- Bad 3.2.2: changing the select navigates immediately. -->
+      <form id="jump">
+        <label for="country">Country site</label>
+        <select id="country" onchange="location.href = 'https://example.com/?site=' + this.value">
+          <option value="us">United States</option>
+          <option value="uk">United Kingdom</option>
+        </select>
+      </form>
+    </main>
+    <script>
+      document.getElementById('silent').addEventListener('submit', (e) => e.preventDefault());
+      document.getElementById('helpful').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = document.getElementById('h-email');
+        const error = document.getElementById('h-email-error');
+        if (!input.value.includes('@')) {
+          input.setAttribute('aria-invalid', 'true');
+          error.hidden = false;
+          error.textContent = 'Enter an email address in the format name@example.com';
+          document.getElementById('h-summary').textContent = 'There is 1 error in this form';
+        }
+      });
+    </script>
+  </body>
+</html>

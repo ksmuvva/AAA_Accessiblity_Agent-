@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Media</title>
+    <style>
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Media</h1>
+      <!-- No caption track, autoplays with sound, no controls. -->
+      <video id="promo" autoplay loop width="320" height="180" src="promo.mp4"></video>
+      <!-- Captioned, with controls. -->
+      <video id="talk" controls width="320" height="180" src="talk.mp4">
+        <track kind="captions" srclang="en" label="English" src="talk.vtt">
+      </video>
+      <div class="spinner" aria-hidden="true"></div>
+    </main>
+  </body>
+</html>

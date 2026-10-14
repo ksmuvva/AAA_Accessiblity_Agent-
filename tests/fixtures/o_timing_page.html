@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Checkout session test page</title></head>
+<body>
+<main>
+  <h1>Checkout</h1>
+  <!-- 2.2.1 / 2.2.3: a session time limit with a visible countdown and a long timer -->
+  <p>Your session will expire soon: <span id="left">04:59 remaining</span></p>
+  <!-- 2.2.4: a dialog that interrupts on load -->
+  <div role="dialog" aria-label="Newsletter" id="promo" style="border:1px solid #000;padding:8px">
+    <p>Sign up for our newsletter!</p>
+  </div>
+</main>
+<script>
+  setTimeout(() => { location.hash = 'expired'; }, 300000);
+</script>
+</body>
+</html>

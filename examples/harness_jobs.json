@@ -1,0 +1,11 @@
+[
+  {
+    "html_file": "../tests/fixtures/bad_page.html",
+    "level": "AA",
+    "max_pages": 1,
+    "budget_calls": 120,
+    "budget_minutes": 10,
+    "timeout_seconds": 720,
+    "fail_threshold": 0
+  }
+]

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Landscape only</title>
+    <style>
+      .rotate { display: none; }
+      @media (orientation: portrait) {
+        main { display: none; }
+        .rotate { display: block; }
+      }
+    </style>
+  </head>
+  <body>
+    <p class="rotate">Please rotate your device to landscape mode.</p>
+    <main>
+      <h1>Dashboard</h1>
+      <p>This dashboard shows your account balance, recent transactions, upcoming bills, and savings goals.
+         Each section can be expanded to show more detail and exported as a spreadsheet for your records.</p>
+      <p>Use the filters to narrow transactions by date, amount, or category, and set alerts for large purchases.</p>
+    </main>
+  </body>
+</html>

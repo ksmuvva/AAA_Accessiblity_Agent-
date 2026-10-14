@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Prices - Example</title>
+    <style>
+      #prices tr:first-child td { font-weight: bold; }
+      #spaced { font-size: 24px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Prices</h1>
+      <!-- A data table whose header row is only styled bold: no th, scope, or headers (F91). -->
+      <table id="prices">
+        <tr><td>Product</td><td>Price</td><td>Stock</td></tr>
+        <tr><td>Apple</td><td>1.20</td><td>In stock</td></tr>
+        <tr><td>Pear</td><td>1.50</td><td>Sold out</td></tr>
+        <tr><td>Plum</td><td>2.10</td><td>In stock</td></tr>
+      </table>
+      <!-- A proper data table: must not be flagged. -->
+      <table id="hours">
+        <caption>Opening hours</caption>
+        <tr><th scope="col">Day</th><th scope="col">Hours</th></tr>
+        <tr><td>Monday</td><td>9-5</td></tr>
+        <tr><td>Tuesday</td><td>9-5</td></tr>
+      </table>
+      <!-- A table with no header cells and no styling cue: an agent must decide. -->
+      <table id="plain">
+        <tr><td>Left</td><td>Right</td></tr>
+        <tr><td>One</td><td>Two</td></tr>
+      </table>
+      <!-- Letters spaced out with real spaces (F32). -->
+      <p id="spaced">W E L C O M E</p>
+      <!-- A list made with line breaks and bullet characters. -->
+      <p id="fakelist">What you get:<br>• Free delivery<br>• Returns within 30 days<br>• A printed receipt</p>
+      <!-- Columns laid out with spaces in preformatted text (F33). -->
+      <pre id="columns">Name      Price    Stock
+Apple     1.20     Yes
+Pear      1.50     No
+Plum      2.10     Yes</pre>
+      <p>Ordinary text with a <a href="/offer">special offer</a> link that keeps its underline.</p>
+    </main>
+  </body>
+</html>

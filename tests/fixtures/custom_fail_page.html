@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Custom check failures</title>
+    <style>
+      body { margin: 0; font: 16px/1.2 sans-serif; }
+      .tiny { width: 16px; height: 16px; padding: 0; margin: 0; border: 1px solid #333; }
+      #no-focus-style:focus { outline: none; }
+      .wide { width: 700px; background: #eee; }
+      .clipped { height: 20px; width: 200px; overflow: hidden; }
+      .spacer { height: 1500px; }
+      footer { position: fixed; bottom: 0; left: 0; right: 0; height: 200px; background: #222; color: #fff; }
+      .card { cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Failures</h1>
+      <!-- 2.5.8: two 16px buttons right next to each other. -->
+      <div><button class="tiny" aria-label="Previous">&lt;</button><button class="tiny" aria-label="Next">&gt;</button></div>
+      <!-- 2.4.7: focus indicator removed. -->
+      <button id="no-focus-style" style="border: 0; background: #ddd">Save</button>
+      <!-- 1.4.10: fixed width wider than 320px. -->
+      <div class="wide">This box is 700 pixels wide and forces horizontal scrolling on narrow screens.</div>
+      <!-- 1.4.12: fixed height with overflow hidden. -->
+      <div class="clipped">Short line of text</div>
+      <!-- 2.1.1: clickable but not focusable. -->
+      <div class="card" onclick="alert('open')">Open the product card</div>
+      <div class="spacer"></div>
+      <!-- 2.4.11: focusing this link scrolls it to the bottom edge, under the fixed footer. -->
+      <a id="hidden-link" href="#top">Back to top</a>
+    </main>
+    <footer>Fixed footer that covers content</footer>
+  </body>
+</html>

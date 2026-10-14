@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Products - Example Shop</title></head>
+<body>
+<header>
+  <nav aria-label="Main">
+    <ul><li><a href="/">Home</a></li><li><a href="/products" aria-current="page">Products</a></li><li><a href="/help">Help</a></li></ul>
+  </nav>
+  <form role="search" action="/search"><label for="q">Search</label> <input id="q" name="q" type="search"></form>
+</header>
+<!-- 2.4.8: breadcrumb and aria-current show where the user is -->
+<nav aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li>Products</li></ol></nav>
+<main>
+  <h1>Products</h1>
+  <p>Browse our <a href="/products/chairs">chairs</a> and <a href="/products/tables">tables</a>.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>Focus removed by script</title></head>
+<body>
+  <main>
+    <h1>Focus removed by script</h1>
+    <!-- W3C failure F55: these links drop focus as soon as they receive it. -->
+    <a href="#home">Home</a>
+    <a id="news" href="#news" onfocus="blur();">News</a>
+    <a id="tickets" href="#tickets" onfocus="this.blur();">Tickets</a>
+    <a href="#contact">Contact</a>
+  </main>
+</body>
+</html>

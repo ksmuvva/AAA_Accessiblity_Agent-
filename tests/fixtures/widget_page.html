@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Widgets</title>
+    <style>
+      .overlay { position: fixed; inset: 20% 30%; background: #fff; border: 2px solid #000; padding: 1rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Widgets</h1>
+
+      <!-- Good disclosure: toggles aria-expanded. -->
+      <button id="good-toggle" aria-expanded="false" aria-controls="good-panel">Show details</button>
+      <div id="good-panel" hidden><p>Here are the details.</p></div>
+
+      <!-- Bad 4.1.2: shows content but aria-expanded never changes. -->
+      <button id="stale-toggle" aria-expanded="false" aria-controls="stale-panel">More options</button>
+      <div id="stale-panel" hidden><p>Extra options panel.</p></div>
+
+      <!-- Bad 2.1.1: span button that only listens for clicks. -->
+      <span id="mouse-only" role="button" tabindex="0" aria-expanded="false">Open menu</span>
+      <ul id="mouse-menu" hidden><li>Item one</li><li>Item two</li></ul>
+
+      <!-- Bad 2.4.3 / 4.1.2: dialog that doesn't move focus and has no accessible name. -->
+      <button id="bad-dialog-btn" aria-haspopup="dialog">Open settings</button>
+      <div id="bad-dialog" class="overlay" role="dialog" aria-modal="true" hidden>
+        <p>Settings content</p><button id="bad-close">Close</button>
+      </div>
+
+      <!-- Good dialog: native <dialog>, focus moves in, Escape closes, focus returns. -->
+      <button id="good-dialog-btn" aria-haspopup="dialog">Open info</button>
+      <dialog id="good-dialog" aria-labelledby="gd-title">
+        <h2 id="gd-title">Information</h2><button id="gd-close">Close</button>
+      </dialog>
+    </main>
+    <script>
+      const toggle = (btn, panel, updateState) => btn.addEventListener('click', () => {
+        panel.hidden = !panel.hidden;
+        if (updateState) btn.setAttribute('aria-expanded', String(!panel.hidden));
+      });
+      toggle(document.getElementById('good-toggle'), document.getElementById('good-panel'), true);
+      toggle(document.getElementById('stale-toggle'), document.getElementById('stale-panel'), false);
+      toggle(document.getElementById('mouse-only'), document.getElementById('mouse-menu'), true);
+
+      const badDialog = document.getElementById('bad-dialog');
+      document.getElementById('bad-dialog-btn').addEventListener('click', () => { badDialog.hidden = false; });
+      document.getElementById('bad-close').addEventListener('click', () => { badDialog.hidden = true; });
+
+      const goodDialog = document.getElementById('good-dialog');
+      const goodBtn = document.getElementById('good-dialog-btn');
+      goodBtn.addEventListener('click', () => goodDialog.showModal());
+      document.getElementById('gd-close').addEventListener('click', () => goodDialog.close());
+      goodDialog.addEventListener('close', () => goodBtn.focus());
+    </script>
+  </body>
+</html>

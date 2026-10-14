@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Terms - Example</title>
+    <style>
+      body { color: #222222; font: 16px/1.5 sans-serif; }
+      a { text-decoration: none; }
+      #faint { color: #0000ee; }
+      #bright { color: #ff6600; }
+      #underlined { text-decoration: underline; color: #0000ee; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Terms</h1>
+      <!-- Colour is the only cue and the colours differ by less than 3:1 (F73). -->
+      <p>Please read the <a id="faint" href="/terms">terms of service</a> before you continue with your order.</p>
+      <!-- Colour is the only cue; the difference is over 3:1, so a hover/focus cue is also needed. -->
+      <p>Our <a id="bright" href="/privacy">privacy policy</a> explains what we store and for how long.</p>
+      <!-- Underlined: not a colour-only link. -->
+      <p>You can also <a id="underlined" href="/contact">contact us</a> with any question about the order.</p>
+    </main>
+  </body>
+</html>

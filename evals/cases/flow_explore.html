@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Harbour Ferries - timetable and preferences</title>
+  <style>
+    body { font: 16px/1.5 sans-serif; color: #222; background: #fff; margin: 2rem; }
+    a { color: #0645ad; }
+    label { display: block; margin-top: 12px; }
+    input, select { min-height: 32px; min-width: 240px; }
+    button { min-height: 32px; min-width: 120px; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <header><nav aria-label="Main"><a href="#timetable">Timetable</a> <a href="#fares">Fares</a></nav></header>
+  <main>
+    <h1>Harbour Ferries</h1>
+    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60'><path d='M10 40h100l-10 15H20z' fill='%23245'/><rect x='50' y='15' width='20' height='25' fill='%23245'/></svg>"
+         alt="A ferry seen from the side, with a single funnel" width="120" height="60">
+    <h2 id="timetable">Timetable</h2>
+    <p>Ferries leave every 20 minutes from 6 am to 11 pm. The last sailing on Sundays is at 10 pm.</p>
+    <h2 id="fares">Fares</h2>
+    <p>Adults 4.50, children 2.20, bicycles free.</p>
+
+    <!-- The settings panel is built by script only when the button is pressed, so the page-load sweep never sees
+         its form. Only an agent that explores the page (presses the button, labels the state) can find:
+         3.3.2 fail (placeholder-only field) and 3.2.2 fail (a select that navigates on change). -->
+    <button type="button" id="open-settings" aria-expanded="false" aria-controls="settings">Open settings</button>
+    <section id="settings" aria-label="Settings" hidden></section>
+  </main>
+  <script>
+    document.getElementById('open-settings').addEventListener('click', (ev) => {
+      const panel = document.getElementById('settings');
+      if (!panel.hidden) return;
+      panel.innerHTML = `
+        <h2>Settings</h2>
+        <form id="prefs" action="http://localhost/prefs" method="post" novalidate>
+          <input type="email" name="email" placeholder="Email for alerts" required>
+          <label for="lang">Language</label>
+          <select id="lang" name="lang" onchange="window.location.assign('http://localhost/prefs?lang=' + this.value)">
+            <option value="">Choose</option><option value="en">English</option><option value="cy">Cymraeg</option>
+          </select>
+          <button type="submit">Save</button>
+        </form>`;
+      panel.hidden = false;
+      ev.currentTarget.setAttribute('aria-expanded', 'true');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Zoom problems</title>
+    <style>
+      body { margin: 0; font: 16px/1.5 sans-serif; }
+      /* Text tied to the viewport doesn't grow with zoom. */
+      h1 { font-size: 3vw; }
+      /* Fixed to a fraction of viewport height, clipping its text when the viewport shrinks. */
+      .panel { height: 30vh; overflow: hidden; width: 280px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Quarterly results</h1>
+      <div class="panel">
+        <p>Revenue grew in every region this quarter. Costs were flat, and margins improved for the third
+           quarter running. The board approved the new investment plan, and hiring will continue in the
+           engineering and support teams through the rest of the year.</p>
+      </div>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head><title>Embedded frame</title></head>
+  <body>
+    <main>
+      <h1>Video</h1>
+      <button>Before frame</button>
+      <!-- Focus moves through the frame's buttons while the parent reports the iframe as active. -->
+      <iframe title="Player" srcdoc="<button>Play</button><button>Mute</button><button>Settings</button>"></iframe>
+      <button>After frame</button>
+    </main>
+  </body>
+</html>

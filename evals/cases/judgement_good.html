@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>2025 results and newsletter sign-up - Example Shop</title>
+  <style>
+    body { font: 16px/1.5 sans-serif; color: #222; background: #fff; margin: 2rem; }
+    a { color: #0645ad; }
+    .req { color: #c00; }
+    .error { color: #c00; }
+  </style>
+</head>
+<body>
+  <header><nav aria-label="Main"><a href="#top">Home</a> <a href="#shop">Shop</a></nav></header>
+  <main>
+    <h1>Example Shop: 2025 results</h1>
+
+    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect y='50' width='60' height='50' fill='%23336'/><rect x='80' width='60' height='100' fill='%23336'/></svg>"
+         alt="Bar chart: sales rose from 2 million in 2024 to 4 million in 2025." width="200" height="100">
+    <p>Sales rose sharply this year, as the chart shows.</p>
+
+    <h2>Annual report</h2>
+    <p>Our annual report for 2025 is now available.</p>
+    <p><a href="#annual-report">Read the 2025 annual report</a></p>
+    <h2>Store news</h2>
+    <p>We opened two new stores this spring.</p>
+    <p><a href="#store-news">Read about our new stores</a></p>
+
+    <p lang="fr">Bonjour à tous, nous sommes ravis de vous accueillir dans notre nouvelle boutique en ligne.</p>
+
+    <h2>Newsletter</h2>
+    <p>Fields marked "(required)" must be filled in.</p>
+    <form id="signup" novalidate>
+      <p><label class="req" for="name">Name (required)</label><br>
+        <input id="name" name="name" type="text" autocomplete="name" aria-required="true" aria-describedby="name-err">
+        <span id="name-err" class="error"></span></p>
+      <p><label class="req" for="email">Email (required)</label><br>
+        <input id="email" name="email" type="text" autocomplete="email" aria-required="true" aria-describedby="email-err">
+        <span id="email-err" class="error"></span></p>
+      <p><label for="city">City</label><br><input id="city" name="city" type="text" autocomplete="address-level2"></p>
+      <p id="status" role="status"></p>
+      <button type="submit">Subscribe</button>
+    </form>
+  </main>
+  <script>
+    document.getElementById('signup').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = document.getElementById('name');
+      const email = document.getElementById('email');
+      const nameBad = !name.value.trim();
+      const emailBad = !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value);
+      document.getElementById('name-err').textContent = nameBad ? 'Error: enter your name.' : '';
+      document.getElementById('email-err').textContent = emailBad
+        ? 'Error: enter an email address in the format name@example.com.' : '';
+      name.setAttribute('aria-invalid', String(nameBad));
+      email.setAttribute('aria-invalid', String(emailBad));
+      document.getElementById('status').textContent = (nameBad || emailBad)
+        ? 'The form has errors. Fix the fields marked Error.' : 'Thanks, you are subscribed.';
+      if (nameBad) name.focus(); else if (emailBad) email.focus();
+    });
+  </script>
+</body>
+</html>
