@@ -13,6 +13,7 @@ and, optionally, the NVDA screen reader.
 
 ## Contents
 
+- [Start your first agent test](#start-your-first-agent-test)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -62,14 +63,19 @@ When a criterion has no clear verdict, the auditor stays cautious. A failure the
 
 ## Installation
 
-```bash
+Open PowerShell. If you already have this project, change into its folder and skip the clone command.
+
+```powershell
 git clone https://github.com/ksmuvva/Accessiblity_AI_Agent.git
 cd Accessiblity_AI_Agent
 python -m venv .venv
-.venv/Scripts/activate            # Windows; on macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-playwright install chromium
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
+
+These commands use the virtual environment directly, so activation is unnecessary. If `python` is unavailable
+on Windows, use `py -3 -m venv .venv` after installing Python. On macOS/Linux, create the environment with
+`python3 -m venv .venv` and use `.venv/bin/python` instead of `.\.venv\Scripts\python.exe` throughout this guide.
 
 Optional real-screen-reader support (NVDA, Windows):
 
@@ -78,6 +84,7 @@ cd nvda_bridge
 npm install
 node node_modules/@guidepup/setup/lib/index.js setup
 node node_modules/@guidepup/setup/lib/index.js install nvda
+cd ..
 ```
 
 ## Configuration
@@ -92,11 +99,72 @@ OPENAI_REVIEWER_MODEL=   # optional: a different model for the reviewer, for a m
 
 Never commit `.env`.
 
+## Start your first agent test
+
+Run all commands from the project root: the folder containing `main.py` and `requirements.txt`.
+
+**1. Check the harness without an API key.** This verifies the harness using simulated audit results and real
+worker timeout/cancellation checks. It does not run an AI accessibility audit.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -n 0 tests/test_harness.py
+```
+
+**2. Configure an API key for a real audit.** Copy the example configuration only if you do not already have a
+`.env` file, then open `.env` and fill in `OPENAI_API_KEY`:
+
+```powershell
+if (!(Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Destination .env }
+notepad .env
+```
+
+Save and close the editor. Optional model settings can remain empty. Real agent audits make paid OpenAI API calls.
+
+**3. Run a real AI audit against the included local test page.** This runs the actual auditor, specialist agents
+and reviewer on a fixture containing accessibility defects. It requires the API key and internet access.
+
+```powershell
+.\.venv\Scripts\python.exe -m agent_access.harness_cli --html-file tests/fixtures/bad_page.html --max-pages 1
+```
+
+The harness writes progress to logs while it runs, then prints each job's result and the batch-summary path.
+The default model-call limit is 400, the soft working budget is 60 minutes, and the worker deadline is 65 minutes.
+Press **Ctrl+C** to stop it. A short budget can leave criteria unresolved.
+
+**4. Read the report.** Look under `reports/harness/batch-.../<job-id>/`. Open `manifest.json` to find the paths
+to the nested `report.md` and `report.json`. Read `report.md` for findings, evidence and unresolved criteria.
+`completed` means the audit finished without execution errors; it does not mean the page is accessible.
+The intentionally defective fixture can produce `fail` results.
+
+**5. Test your website.** Replace the example URL with the website you want to audit:
+
+```powershell
+.\.venv\Scripts\python.exe -m agent_access.harness_cli https://example.com --level AA --pages 1 --max-pages 1
+```
+
+The harness uses an emulated screen reader, runs headless, disables memory and trace uploads, and blocks writes.
+Agents can click and type; add `--no-interaction` to disable that. Website content is still sent to the model for
+assessment. Use `--fail-threshold 0` if you want exit code 1 when any target-level criterion fails.
+
+### If the test does not start or fails
+
+| Symptom | Next step |
+|---|---|
+| Python or the virtual environment is missing | Complete Installation above; confirm you are in the project root. |
+| Missing module | Run `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`. |
+| Chromium executable is missing | Run `.\.venv\Scripts\python.exe -m playwright install chromium`. |
+| API key, authentication, quota or model error | Check `.env`, your API account access and any configured model name; read the job's `stderr.log`. |
+| No progress appears in the terminal | Open the current job's `stderr.log`; progress is logged while the worker runs. |
+| Status is `failed` or `timed_out` | Read `manifest.json`, `stderr.log` and any partial report; resolve the recorded error before rerunning. |
+
 ## Running an audit
 
+The direct auditor below exposes advanced options. These commands assume the virtual environment is activated;
+on Windows, you can instead replace `python` with `.\.venv\Scripts\python.exe`.
+
 ```bash
-# One page, conformance target AA (the default)
-python main.py https://example.com
+# One page, conformance target AA, headless with an emulated screen reader
+python main.py https://example.com --pages 1 --max-pages 1 --screen-reader emulated
 
 # Up to 5 same-site pages, target AAA, headless and silent
 python main.py https://example.com --pages 3 --max-pages 5 --level AAA --screen-reader emulated
@@ -127,9 +195,9 @@ Run `python main.py --help` for every option.
 
 ### What a run costs
 
-Cost depends on the page and the model. As a guide, a single test page with about 7 failures used 79 model calls
-and took under 3 minutes. Multi-page audits scale roughly with the number of pages. Set `--budget-calls` to cap
-spending. A budget that is too small ends the run early, and the criteria left unjudged are listed in the report.
+Cost and duration depend on the page, exploration and model. Set `--budget-calls` to limit the number of model
+calls; this is not a currency spending limit. A budget that is too small ends work early, and criteria left
+unjudged remain explicit in the report.
 
 ## Reading the report
 
@@ -169,7 +237,7 @@ python -m agent_access.harness_cli --jobs examples/harness_jobs.json
 | `0` | Completed, within `--fail-threshold` |
 | `1` | Completed, but more target-level criteria failed than `--fail-threshold` allows |
 | `2` | Invalid input or configuration |
-| `3` | The audit reported errors or timed out (this includes running out of budget) |
+| `3` | Execution failed, no report was produced, the audit reported execution errors, or the worker timed out |
 | `130` | Interrupted |
 
 By default the harness runs headless with the emulated screen reader, memory off, tracing off and data-changing
@@ -192,7 +260,7 @@ The test suite needs no API key and makes no model calls. It uses local HTML fix
 emulated screen reader and a scripted fake model.
 
 ```bash
-python -m pytest                                    # full suite, about 3 minutes (runs in parallel)
+python -m pytest                                  # full suite; duration varies (runs in parallel)
 python -m pytest -n 0 tests/test_harness.py         # one file, without parallel workers
 ```
 
