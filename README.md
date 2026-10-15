@@ -66,8 +66,8 @@ When a criterion has no clear verdict, the auditor stays cautious. A failure the
 Open PowerShell. If you already have this project, change into its folder and skip the clone command.
 
 ```powershell
-git clone https://github.com/ksmuvva/Accessiblity_AI_Agent.git
-cd Accessiblity_AI_Agent
+git clone https://github.com/ksmuvva/AAA_Accessiblity_Agent-.git
+cd AAA_Accessiblity_Agent-
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m playwright install chromium
