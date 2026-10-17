@@ -168,9 +168,9 @@ def _not_reviewed(findings: list[Finding], note: str) -> list[dict]:
 
 
 async def review_findings(
-    audit: AuditContext, model: str | Model | None = None
+    audit: AuditContext, model: str | Model | None = None, pages: list[str] | None = None
 ) -> tuple[list[dict], list[str]]:
-    """Review every failure and every agent pass, page by page and in batches.
+    """Review every failure and every agent pass, page by page (all pages, or just `pages`) and in batches.
 
     A batch that errors is marked not_reviewed (its findings keep their status) and the rest still runs.
     Returns the verdict log and any errors.
@@ -178,7 +178,7 @@ async def review_findings(
     reviewer = build_reviewer(model)
     log: list[dict] = []
     errors: list[str] = []
-    for page_key in list(audit.pages):
+    for page_key in list(audit.pages) if pages is None else pages:
         items = [f for f in audit.findings_for(page_key) if needs_review_check(f)]
         if not items:
             continue

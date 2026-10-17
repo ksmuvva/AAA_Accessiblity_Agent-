@@ -197,3 +197,22 @@ def test_check_tools_are_scoped_like_the_criterion_tools():
     enum = forms["run_checks"].params_json_schema["properties"]["criteria"]["items"]["enum"]
     assert enum == [t.criterion for t in TOOLS_IN_ORDER if t.domain == "forms"] and len(enum) == 14
     assert all(REGISTRY[c].domain == "forms" for c in enum)
+
+
+def test_cross_page_checks_above_the_target_wait_for_an_agent_in_lazy_mode():
+    from agent_access.engine import run_site_tests
+
+    async def scenario():
+        async with lazy_audit() as audit:
+            audit.target_level = "A"   # 3.2.3 and 3.2.4 are AA, 3.2.6 is A
+            for key, html in (("file:a.html", A_PAGE), ("file:b.html", B_PAGE)):
+                await load_html_content(audit, html, key)
+                await measure_on_load(audit)
+                await run_sweep_remaining(audit, key)
+            await run_site_tests(audit)
+            return {key: audit.attempted_on(key) for key in ("file:a.html", "file:b.html")}
+
+    tried = asyncio.run(scenario())
+    for checks in tried.values():
+        assert REGISTRY["3.2.6"].name in checks
+        assert REGISTRY["3.2.3"].name not in checks and REGISTRY["3.2.4"].name not in checks

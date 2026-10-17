@@ -465,6 +465,10 @@ def planner_tools(state: PlanState) -> list:
         if not wanted:
             return json.dumps({"error": "None of these is an opened page that still needs auditing.", "ignored": ignored})
         verdicts = await review_skips(audit, state, wanted)
+        for v in verdicts:   # measure an accepted page now, so its findings exist before review_pages and the summary
+            if v["verdict"] == "accepted":
+                with audit.at_page(v["page"]):
+                    await run_sweep_remaining(audit)
         _log(audit, "skip_pages", verdicts=[{k: v[k] for k in ("page", "verdict")} for v in verdicts])
         result = {"verdicts": verdicts, "next": "audit_pages the rejected pages; accepted ones need nothing more."}
         if ignored:
@@ -497,12 +501,12 @@ def planner_tools(state: PlanState) -> list:
             run_site_tests_tool, review_pages, write_summary, skip_pages, *MEMORY_TOOLS, finish]
 
 
-async def _review(audit: AuditContext, state: PlanState) -> tuple[list[dict], list[str]]:
+async def _review(audit: AuditContext, state: PlanState, pages: list[str] | None = None) -> tuple[list[dict], list[str]]:
     from agent_access.team.reviewer import needs_review_check, review_findings
     state.reviewed = True
     if not state.review or not any(needs_review_check(f) for f in audit.findings):
         return [], []
-    log, errors = await review_findings(audit, state.reviewer_model)
+    log, errors = await review_findings(audit, state.reviewer_model, pages=pages)
     state.review_log += log
     state.errors += errors
     _log(audit, "review", verdicts=len(log), errors=len(errors))
@@ -597,6 +601,15 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
     if not state.reviewed and not budget.hard_exhausted:
         progress("Reviewer: verifying failures and judged passes...")
         await _review(audit, state)
+    elif state.review and not budget.hard_exhausted:
+        # Findings recorded after the planner's review (a floor sweep at finish, a floor lead pass) are reviewed too,
+        # and the summary is rewritten so it includes them.
+        from agent_access.team.reviewer import needs_review_check
+        late = sorted({f.page_url for f in audit.findings if needs_review_check(f) and f.review_verdict is None})
+        if late:
+            progress("Reviewer: verifying findings recorded after the review...")
+            await _review(audit, state, pages=late)
+            state.summary = None
     outcome.lead_notes += state.lead_notes
     outcome.review_log = state.review_log
     outcome.errors += state.errors

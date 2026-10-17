@@ -146,10 +146,13 @@ async def run_site_tests(audit: AuditContext) -> None:
     pages = [p for p in audit.pages if p in audit.swept]
     if len(pages) < 2:
         return
+    target = {r.wcag_criterion for r in audit.target_rules()}
     for page in pages:
         with audit.at_page(page):
             for criterion in SITE_CRITERIA:
-                await run_rule(audit, REGISTRY[criterion])
+                # Above the target only if its check already ran on the page (the eager sweep, or an agent asked).
+                if criterion in target or REGISTRY[criterion].name in audit.attempted_on(page):
+                    await run_rule(audit, REGISTRY[criterion])
 
 
 def sweep_summary(runs: list[dict]) -> dict:

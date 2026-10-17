@@ -54,6 +54,10 @@ def _run(scripts, tmp_path, **kwargs):
     async def scenario():
         async with AuditContext(output_dir=tmp_path, screen_reader="emulated", tracing=False) as audit:
             await load_html_content(audit, (FIXTURES / "bad_page.html").read_text(encoding="utf-8"), PAGE)
+            if kwargs.pop("lazy", False):       # lazy measurement: only the cheap probes, as run_audit does on load
+                from agent_access.agent_tools.check_tools import measure_on_load
+                audit.measurement = "lazy"
+                await measure_on_load(audit)
             if kwargs.pop("measured", False):   # as run_audit does: the start page is measured before the planner starts
                 from agent_access.engine import run_sweep
                 await run_sweep(audit)
@@ -214,3 +218,39 @@ def test_a_skipped_page_that_was_audited_anyway_is_not_reported_as_skipped():
                    "c": {"reason": "saves budget", "verdict": "rejected"}}
     state.lead_runs = {"b": 1}
     assert accepted_skips(state) == {"a": "duplicate"}
+
+
+def _lazy_skip_scripts(planner_steps):
+    return {
+        "audit planner": planner_steps + [
+            {"pages_audited": [], "goal_changes": [], "stopped_because": "done", "notes_for_human": []}],
+        "skip reviewer": [{"verdicts": [{"page": PAGE, "verdict": "accepted", "reason": "Compared the profiles."}]}],
+        "lead auditor": [],
+        "reviewer": [confirm_all] * 6,
+        "summary writer": [SUMMARY] * 2,
+    }
+
+
+SKIP = call("skip_pages", {"skips": [{"page": PAGE, "reason": "An error page with nothing to audit."}]})
+
+
+def test_an_accepted_skip_is_measured_before_the_review_and_summary(tmp_path):
+    """Lazy measurement: the skipped page's target checks run when the skip is accepted, so the planner's own
+    review and summary already see its findings, and nothing is reviewed or summarised twice."""
+    model, audit, outcome = _run(_lazy_skip_scripts([
+        SKIP, call("review_pages", {}), call("write_summary", {}), call("finish", {"reason": "done"})]),
+        tmp_path, lazy=True)
+    fails = [f for f in audit.findings if f.status.value == "fail" or f.original_status is not None]
+    assert fails and all(f.review_verdict is not None for f in fails)
+    assert len(model.inputs["summary writer"]) == 1
+
+
+def test_findings_recorded_after_the_review_are_reviewed_and_summarised(tmp_path):
+    """If the planner reviews and summarises first and skips afterwards, the late findings are still reviewed and
+    the summary is rewritten to include them."""
+    model, audit, outcome = _run(_lazy_skip_scripts([
+        call("review_pages", {}), call("write_summary", {}), SKIP, call("finish", {"reason": "done"})]),
+        tmp_path, lazy=True)
+    fails = [f for f in audit.findings if f.status.value == "fail" or f.original_status is not None]
+    assert fails and all(f.review_verdict is not None for f in fails)
+    assert len(model.inputs["summary writer"]) == 2 and outcome.summary is not None
