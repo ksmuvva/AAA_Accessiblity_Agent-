@@ -191,7 +191,7 @@ code can't tell you (gotchas, non-obvious contracts, how to run and test it); ev
 <!-- G1 start -->
 ### G1 Orchestration, planner, goals, budget
 - `cli` defaults to `--mode agent`: `run_audit(mode="agent")` opens and measures the start page, then hands the run to `team/planner.py`. `run_audit`'s own default is `code` (today's flow; `tests/test_agent.py` relies on it).
-- The planner (`"You are the audit planner"`, output `PlanReport`) decides pages, order, flows, review, summary, `finish`. Code floors stay: start page always measured; `finish` refuses while a planner-opened page has no lead pass; explorer-labelled states don't block it; `set_goal` only grows; reviewer and summary run even if the planner skips them; coverage warnings include "never measured".
+- The planner (`"You are the audit planner"`, output `PlanReport`) decides pages, order, flows, review, summary, `finish`. Code floors stay: start page always measured; `finish` refuses while a planner-opened page has neither a lead pass nor an accepted skip (`skip_pages`: the planner gives a reason per page, the skip reviewer (`"You are the skip reviewer"`) accepts or rejects it from `page_profile`s; a review error rejects, so the old floor applies; accepted skips become coverage warnings with the reason); explorer-labelled states don't block it; `set_goal` only grows; reviewer and summary run even if the planner skips them; coverage warnings include "never measured".
 - `budget.charge_model_call` (called by `runtime.trim_input`) raises `BudgetExhausted` for working agents at the soft limit; planner, reviewer and summary writer keep `reserve_calls`. Test offline: `tests/test_agentic_planner.py` (RouterModel).
 <!-- G1 end -->
 

@@ -162,3 +162,41 @@ def test_back_to_checks_the_live_browser_not_only_the_cursor(tmp_path):
 
     ok, title = asyncio.run(scenario())
     assert ok and title == "A"
+
+
+def _skip_scripts(verdict, lead):
+    return {
+        "audit planner": [
+            call("skip_pages", {"skips": [{"page": PAGE, "reason": "An error page with nothing to audit."}]}),
+            call("finish", {"reason": "done"}),
+            {"pages_audited": [], "goal_changes": [], "stopped_because": "done", "notes_for_human": []},
+        ],
+        "skip reviewer": [{"verdicts": [{"page": PAGE, "verdict": verdict, "reason": "Compared the profiles."}]}],
+        "lead auditor": lead,
+        "reviewer": [confirm_all] * 3,
+        "summary writer": [SUMMARY],
+    }
+
+
+def test_an_accepted_skip_lets_the_planner_finish_and_is_reported_with_its_reason(tmp_path):
+    model, audit, outcome = _run(_skip_scripts("accepted", lead=[]), tmp_path)
+    reviewed = last_tool_output(model, "audit planner", 1)
+    assert '"verdict": "accepted"' in reviewed
+    finished = last_tool_output(model, "audit planner", 2)
+    assert '"ok": true' in finished and PAGE in finished           # no hard floor: the justified skip stands
+    profile = model.inputs["skip reviewer"][0][-1]["content"]
+    assert '"headings"' in profile and '"audited_pages": []' in profile  # it judged from the pages' profiles
+    actions = [e["action"] for e in outcome.plan_log]
+    assert "skip_pages" in actions and "lead_floor" not in actions  # the lead was never forced onto the page
+    assert any("skipped by the audit planner (An error page with nothing to audit.)" in w for w in outcome.warnings)
+
+
+def test_a_rejected_skip_still_gets_its_lead_pass(tmp_path):
+    lead = [call("get_open_items", {}), {"notes_for_human": []}]
+    model, audit, outcome = _run(_skip_scripts("rejected", lead), tmp_path)
+    assert '"verdict": "rejected"' in last_tool_output(model, "audit planner", 1)
+    refused = last_tool_output(model, "audit planner", 2)
+    assert '"ok": false' in refused and "skip_pages" in refused
+    assert "lead_floor" in [e["action"] for e in outcome.plan_log]
+    assert not model.scripts["lead auditor"]                        # the code floor audited the rejected page
+    assert not any("skipped by the audit planner" in w for w in outcome.warnings)

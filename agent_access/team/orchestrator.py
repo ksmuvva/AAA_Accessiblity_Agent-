@@ -174,11 +174,16 @@ async def _lead_runs(audit: AuditContext, page_key: str, model, max_turns: int, 
         await _run_lead(audit, model, prompt, max_turns, outcome, page_key, note_prefix)
 
 
-def coverage_warnings(audit: AuditContext) -> list[str]:
-    """What the code can see is incomplete: open criteria on a page, or a specialist's skipped judgements."""
+def coverage_warnings(audit: AuditContext, skipped: dict[str, str] | None = None) -> list[str]:
+    """What the code can see is incomplete: open criteria on a page, or a specialist's skipped judgements. `skipped`
+    maps the pages the planner skipped (the skip reviewer accepted) to the planner's reason."""
     warnings = []
     for page_key in audit.pages:
         items = open_items(audit, page_key)
+        if skipped and page_key in skipped:
+            warnings.append(f"{page_key}: skipped by the audit planner ({skipped[page_key]}); the skip reviewer accepted "
+                            f"the reason, so its {items['open_count']} open criteria have automated results only.")
+            continue
         if not items.get("done"):
             warnings.append(f"{page_key}: the lead auditor stopped with {items['open_count']} criteria still open: "
                             + ", ".join(i["criterion"] for i in items["open"]) + ".")
