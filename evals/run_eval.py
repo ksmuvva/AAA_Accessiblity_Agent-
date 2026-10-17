@@ -97,8 +97,10 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None) -> dict:
     from agent_access.budget import Budget
 
     html = (HERE / case["file"]).read_text(encoding="utf-8")
-    async with AuditContext(screen_reader="emulated", target_level=case.get("level", "AA"),
-                            tracing=not args.no_trace, measurement=args.measurement) as audit:
+    # Interaction is on unless --no-interaction, as in the CLI: a case that needs it (a form behind a button) can't be
+    # passed without it.
+    async with AuditContext(screen_reader="emulated", target_level=case.get("level", "AA"), tracing=not args.no_trace,
+                            measurement=args.measurement, allow_interaction=not args.no_interaction) as audit:
         if memory is not None and args.use_lessons:
             audit.memory = memory
         if args.mode == "code":   # count model calls without limiting them (agent mode brings its own Budget)
@@ -142,6 +144,7 @@ async def main_async(args: argparse.Namespace) -> int:
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"eval-{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps({"git_commit": git_commit(), "mode": args.mode, "measurement": args.measurement,
+                               "interaction": not args.no_interaction,
                                "model": args.model or os.environ.get("OPENAI_MODEL"), "reviewer_model": args.reviewer_model,
                                "metrics": summary, "totals": dict(totals), "cases": results,
                                "memory": args.memory, "used_lessons": args.use_lessons, "lessons_written": lessons},
@@ -168,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="code (default): the fixed per-page flow; agent: the planner owns the run (the CLI default)")
     parser.add_argument("--measurement", choices=["eager", "lazy"], default="eager",
                         help="eager (default): every check runs on load; lazy: the agents choose (the CLI default)")
+    parser.add_argument("--no-interaction", action="store_true",
+                        help="forbid clicking, typing and key presses, as the CLI flag does (default: allowed, as in the "
+                             "CLI); cases that need interaction are then scored without it")
     args = parser.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")

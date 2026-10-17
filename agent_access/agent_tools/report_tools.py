@@ -101,12 +101,21 @@ def report_notes(audit: AuditContext) -> list[str]:
     ]
 
 
+UNCONFIRMED_NOT_APPLICABLE = ("The automated check found nothing this criterion applies to, but no auditor confirmed it; "
+                              "content that appears only after interaction may have been missed.")
+
+
 def _criterion_results(audit: AuditContext, page_url: str, rules) -> list[CriterionResult]:
+    """Each criterion's reported status on a page. Like an automated pass, an automated not-applicable that no auditor
+    confirmed is reported as needs_review: the check only saw the page as loaded (the agents' own views still show
+    what the check found)."""
     page_findings = audit.findings_for(page_url)
     results = []
     for rule in rules:
         rule_findings = [f for f in page_findings if f.wcag_criterion == rule.wcag_criterion]
         status, summary = _criterion_status(rule_findings)
+        if status is Status.NOT_APPLICABLE and not any(f.source == "agent" for f in rule_findings):
+            status, summary = Status.NEEDS_REVIEW, UNCONFIRMED_NOT_APPLICABLE
         results.append(CriterionResult(
             rule_id=rule.rule_id, wcag_criterion=rule.wcag_criterion, title=rule.title, level=rule.level,
             status=status, summary=summary,

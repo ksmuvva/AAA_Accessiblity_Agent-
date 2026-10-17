@@ -26,6 +26,7 @@ INLINE_HTML_URL = "about:inline-html"
 
 # Runs in the page. Returns a compact structural summary, not the DOM.
 OUTLINE_JS = js("browser_tools/outline")
+FINGERPRINT_JS = js("browser_tools/fingerprint")
 INSPECT_JS = js("browser_tools/inspect")
 LINKS_JS = js("browser_tools/links")
 
@@ -58,6 +59,7 @@ async def open_url(audit: AuditContext, url: str) -> dict:
         lang = await page.evaluate("() => document.documentElement.getAttribute('lang')")
     audit.set_current(page.url)
     audit.dirty.discard(page.url)
+    audit.start_steps(page.url)
     return {"requested_url": url, "final_url": page.url, "http_status": status, "title": await page.title(), "lang": lang}
 
 
@@ -74,6 +76,7 @@ async def load_html_content(audit: AuditContext, html: str, label: str = INLINE_
     await audit.set_inline_content(html)
     audit.inline_html[unique] = html
     audit.set_current(unique)
+    audit.start_steps(unique)
     return {
         "page_label": unique,
         "title": await page.title(),
@@ -187,21 +190,30 @@ class _RequestTracker:
             await asyncio.sleep(0.05)
 
 
-async def _guarded(audit: AuditContext, what: str, action, navigates: bool = True) -> dict:
+# One interaction step, as the interaction tools take it and as replay_steps repeats it.
+STEP_ACTIONS = {
+    "click": lambda page, step: page.locator(step["selector"]).first.click(timeout=ACTION_TIMEOUT_MS),
+    "fill": lambda page, step: page.locator(step["selector"]).first.fill(step["value"], timeout=ACTION_TIMEOUT_MS),
+    "press": lambda page, step: page.keyboard.press(step["key"]),
+}
+
+
+async def _guarded(audit: AuditContext, what: str, step: dict, navigates: bool = True) -> dict:
     """Run a free-form interaction under the network guard: GET navigations go through, but non-GET requests
     (form posts, API writes) are blocked unless their URL starts with one of audit.allowed_writes.
 
     The page counts as changed afterwards, so criterion tools warn that their cached results describe the
-    page as it was loaded.
+    page as it was loaded. The step is recorded in audit.steps, so a state labelled later can be rebuilt.
     """
     page = await audit.page()
     before = audit.current_url
     async with audit.network_guard(allow_navigation=True, allow_writes=audit.allowed_writes, source="agent",
                                    tool=what.split(" ", 1)[0]) as blocked, _RequestTracker(page) as requests:
         try:
-            await action(page)
+            await STEP_ACTIONS[step["do"]](page, step)
         except Exception as exc:
             return {"error": f"Could not {what}: {exc}"}
+        audit.steps.append(step)
         result = {"done": what, **(await _after_action(audit) if navigates else {"page_url": audit.current_url})}
         await requests.settle()
     if audit.current_url == before:
@@ -214,26 +226,71 @@ async def _guarded(audit: AuditContext, what: str, action, navigates: bool = Tru
 
 
 async def click(audit: AuditContext, selector: str) -> dict:
-    return await _guarded(audit, f"click {selector!r}", lambda p: p.locator(selector).first.click(timeout=ACTION_TIMEOUT_MS))
+    return await _guarded(audit, f"click {selector!r}", {"do": "click", "selector": selector})
 
 
 async def fill(audit: AuditContext, selector: str, value: str) -> dict:
-    return await _guarded(audit, f"fill {selector!r}", lambda p: p.locator(selector).first.fill(value, timeout=ACTION_TIMEOUT_MS),
-                          navigates=False)
+    return await _guarded(audit, f"fill {selector!r}", {"do": "fill", "selector": selector, "value": value}, navigates=False)
 
 
 async def press(audit: AuditContext, key: str) -> dict:
-    return await _guarded(audit, f"press {key!r}", lambda p: p.keyboard.press(key))
+    return await _guarded(audit, f"press {key!r}", {"do": "press", "key": key})
+
+
+async def replay_steps(audit: AuditContext, steps: list[dict]) -> bool:
+    """Repeat recorded interaction steps under the network guard, with GET navigation allowed as for the live tools but
+    no writes at all (a write --allow-submit let through once is never sent again; a state that needs it then fails
+    its fingerprint). Its blocks are recorded as a probe's: expected, no action. False if a step fails."""
+    page = await audit.page()
+    for step in steps:
+        async with audit.network_guard(allow_navigation=True), \
+                _RequestTracker(page) as requests:
+            try:
+                await STEP_ACTIONS[step["do"]](page, step)
+            except Exception:
+                return False
+            try:
+                await page.wait_for_load_state("load", timeout=ACTION_TIMEOUT_MS)
+            except Exception:
+                pass  # Not every step navigates.
+            await requests.settle()
+    return True
+
+
+async def page_fingerprint(audit: AuditContext) -> dict:
+    return await (await audit.page()).evaluate(FINGERPRINT_JS)
 
 
 async def label_state(audit: AuditContext, label: str) -> dict:
-    """Record findings for the current page state separately (e.g. "cart"), after running every test on it."""
+    """Record findings for the current page state separately (e.g. "cart"), after running every test on it. The
+    steps that reached it are kept with its fingerprint, so the lead and the reviewer can rebuild it later."""
     from agent_access.engine import run_sweep, sweep_summary  # imported here: the engine imports modules that import this one
 
-    audit.set_current(f"{base_page_key(audit.current_url)} [{label.strip()}]")
-    result = {"page_url": audit.current_url}
-    if audit.current_url not in audit.swept:
+    if (await audit.page()).url.startswith("chrome-error://"):
+        # The last step navigated somewhere that didn't load; Chromium's error page is not a state of the site.
+        back = audit.current_url
+        restored = await audit.return_to(back)
+        return {"error": "The browser is showing its own error page (the last navigation failed), not a state of the "
+                         "site, so nothing was labelled. " + (f"The page was put back to {back}." if restored else
+                         f"{back} could not be rebuilt; the base page needs reloading.")}
+    fingerprint = await page_fingerprint(audit)
+    base, name = base_page_key(audit.current_url), label.strip()
+    key, n = f"{base} [{name}]", 1
+    while key in audit.pages and audit.state_paths.get(key, {}).get("fingerprint") != fingerprint:
+        n += 1   # the label is taken by a different state: keep both
+        key = f"{base} [{name} #{n}]"
+    if audit.steps_origin is not None and key not in audit.state_paths:
+        audit.state_paths[key] = {"origin": audit.steps_origin, "steps": list(audit.steps), "fingerprint": fingerprint}
+    audit.set_current(key)
+    result = {"page_url": key}
+    if key not in audit.swept:
         result["automated_sweep"] = sweep_summary(await run_sweep(audit))
+        # The sweep's interactive checks can't reload a state, so they may leave it changed (a toggled menu, a #main
+        # fragment). Rebuild it, so the next step starts from the state that was labelled and later states replay.
+        if key in audit.state_paths and await page_fingerprint(audit) != fingerprint and not await audit.restore_state(key):
+            origin = audit.state_paths.pop(key)["origin"]
+            result["note"] = (f"The automated checks changed this state and replaying its steps did not rebuild it, so "
+                              f"the browser is back on {origin}. Redo the steps from there to reach later states.")
     return result
 
 
