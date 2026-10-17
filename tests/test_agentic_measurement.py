@@ -39,8 +39,7 @@ def test_lazy_load_measures_nothing_but_shows_everything_as_unmeasured():
     assert runs == [] and tool_runs == 0 and not swept
     assert probes == set(CHEAP_PROBES)  # only the cheap read-only probes were collected
     assert items["measurement"] == "lazy" and items["open_count"] == 55 and len(items["unmeasured"]) == 55
-    assert set(items["tests_to_run"]) == {"run_checks"} and len(items["tests_to_run"]["run_checks"]) == 55
-    assert all(i["status"] == "not_tested" and i["next_tests"] == ["run_checks"] for i in items["open"])
+    assert all(i["status"] == "not_tested" and not i["measured"] and i["automated"] == {} for i in items["open"])
 
 
 def test_run_checks_measures_only_what_the_rules_need():
@@ -63,8 +62,9 @@ def test_run_checks_measures_only_what_the_rules_need():
     assert all(r["your_judgement_needed"] for r in first["ran"] + second["ran"])
     assert first["unmeasured_after"] == 53 and second["unmeasured_after"] == 52 and len(items["unmeasured"]) == 52
     # Measured criteria stay open until an agent judges them: the coverage contract is unchanged.
-    assert items["open_count"] == 55 and "2.4.2" in items["tests_to_run"]["review"]
-    assert sorted(items["tests_to_run"]["run_checks"]) == sorted(items["unmeasured"])
+    by = {i["criterion"]: i for i in items["open"]}
+    assert items["open_count"] == 55 and by["2.4.2"]["measured"]
+    assert sorted(c for c, i in by.items() if not i["measured"]) == sorted(items["unmeasured"])
 
 
 def test_the_floor_measures_every_target_criterion_the_agent_did_not():
@@ -84,7 +84,7 @@ def test_the_floor_measures_every_target_criterion_the_agent_did_not():
     assert {r["tool"] for r in floor} == target - {"check_page_title", "check_page_language"}
     assert unmeasured == [] and items["unmeasured"] == [] and swept
     assert tried >= target
-    assert items["open_count"] > 0 and "run_checks" not in items["tests_to_run"]  # measured, still to be judged
+    assert items["open_count"] > 0 and all(i["measured"] for i in items["open"])  # measured, still to be judged
 
 
 def test_the_floor_leaves_criteria_above_the_target_to_the_agents():
@@ -170,7 +170,7 @@ def test_eager_mode_is_todays_sweep():
 
     runs, items, swept, floor = asyncio.run(scenario())
     assert len(runs) == 86 and swept and floor == []
-    assert items["measurement"] == "eager" and items["unmeasured"] == [] and "run_checks" not in items["tests_to_run"]
+    assert items["measurement"] == "eager" and items["unmeasured"] == [] and all(i["measured"] for i in items["open"])
 
 
 def test_judging_a_measured_criterion_closes_it_in_lazy_mode_too():

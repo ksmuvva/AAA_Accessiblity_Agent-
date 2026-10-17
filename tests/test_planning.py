@@ -6,7 +6,7 @@ recorded a judgement for it, whatever its automated check said (needs review, pa
 
 from agent_access.context import AuditContext
 from agent_access.models import Finding, Judgement, Status
-from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, SUGGESTED_TESTS, open_items
+from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
 from agent_access.agent_tools.report_tools import add_manual_finding, add_manual_findings, compile_report
 from agent_access.rules import REGISTRY
 
@@ -33,15 +33,12 @@ def fresh_audit(level: str = "AA") -> AuditContext:
     return audit
 
 
-def test_every_criterion_has_a_plan_ending_with_an_agent_judgement():
-    assert set(SUGGESTED_TESTS) == set(REGISTRY)
-    for criterion, plan in SUGGESTED_TESTS.items():
-        tool = REGISTRY[criterion]
-        assert plan[0] == tool.name and plan[-1] == "review"
-        if tool.domain in SPECIALIST_FOR_DOMAIN:
-            assert plan == [tool.name, SPECIALIST_FOR_DOMAIN[tool.domain], "review"]
-        else:
-            assert plan == [tool.name, "review"]  # measured rules included: the lead confirms them
+def test_open_items_report_state_not_a_route():
+    """get_open_items describes the page; it never prescribes the next test. The agent plans the order itself."""
+    items = open_items(swept())
+    assert "tests_to_run" not in items
+    assert all(set(i) == {"criterion", "title", "status", "measured", "automated"} for i in items["open"])
+    assert all(i["measured"] for i in items["open"])  # the sweep ran every check
 
 
 def test_automated_pass_or_not_applicable_stays_open_until_an_agent_judges():
@@ -50,11 +47,14 @@ def test_automated_pass_or_not_applicable_stays_open_until_an_agent_judges():
     items = open_items(audit)
     assert items["open_count"] == 55 and not items["exhausted_for_human"]
     by = {i["criterion"]: i for i in items["open"]}
-    assert by["1.4.3"] == {"criterion": "1.4.3", "title": "Contrast (Minimum)", "status": "needs_review", "next_tests": ["review"]}
-    assert by["1.2.2"]["status"] == "not_applicable" and by["1.2.2"]["next_tests"] == ["audit_media"]
-    # Each open criterion shows one next step, so the lead delegates before judging a specialist's criteria itself.
-    assert set(items["tests_to_run"]) == {"review", *SPECIALIST_FOR_DOMAIN.values()}
-    assert sum(len(v) for v in items["tests_to_run"].values()) == 55
+    assert by["1.4.3"] == {"criterion": "1.4.3", "title": "Contrast (Minimum)", "status": "needs_review",
+                           "measured": True, "automated": {"pass": 1}}
+    assert by["1.2.2"]["status"] == "not_applicable" and by["1.2.2"]["automated"] == {"not_applicable": 1}
+    # Which specialist owns which open criteria is state the lead can plan with; none has been tried yet.
+    assert set(items["specialists"]) == set(SPECIALIST_FOR_DOMAIN.values())
+    assert "1.2.2" in items["specialists"]["audit_media"]["open"] and not items["specialists"]["audit_media"]["tried"]
+    lead_area = [i for i in items["open"] if REGISTRY[i["criterion"]].domain == "lead"]
+    assert len(lead_area) + sum(len(s["open"]) for s in items["specialists"].values()) == 55
 
     add_manual_finding(audit, "1.4.3", "pass", "Measured contrast covers the page.", "details: 40 text nodes incl. hero text")
     add_manual_finding(audit, "1.2.2", "not_applicable", "No media.", "Screenshot and accessibility tree show no media.")
@@ -65,12 +65,12 @@ def test_automated_pass_or_not_applicable_stays_open_until_an_agent_judges():
     assert by_status["2.4.2"] is Status.NEEDS_REVIEW  # an automated pass alone is still only needs_review
 
 
-def test_specialist_leftovers_come_back_to_the_lead_as_review():
+def test_specialist_leftovers_stay_open_for_the_lead():
     audit = swept()
     audit.mark_attempted("audit_forms")
     items = open_items(audit)
     forms = [i for i in items["open"] if REGISTRY[i["criterion"]].domain == "forms"]
-    assert forms and all(i["next_tests"] == ["review"] for i in forms)
+    assert forms and items["specialists"]["audit_forms"]["tried"]  # tried, and what it left is still open
     assert not items["exhausted_for_human"]  # nothing is exhausted until an agent has judged it
 
 
@@ -78,7 +78,7 @@ def test_specialist_view_is_scoped_to_its_domain():
     audit = swept("AAA")
     items = open_items(audit, domain="media")
     assert {i["criterion"] for i in items["open"]} == {t.criterion for t in REGISTRY.values() if t.domain == "media"}
-    assert set(items["tests_to_run"]) == {"review"}
+    assert "specialists" not in items
     add_manual_finding(audit, "1.2.2", "pass", "Captions present.", "CC control and track element.")
     assert open_items(audit, domain="media")["open_count"] == 14 and open_items(audit)["open_count"] == 85
 
@@ -109,10 +109,10 @@ def test_tools_then_judgement_close_items():
     for specialist in SPECIALIST_FOR_DOMAIN.values():
         audit.mark_attempted(specialist)
     remaining = open_items(audit)
-    assert set(remaining["tests_to_run"]) == {"review"}
+    assert all(i["measured"] for i in remaining["open"]) and all(s["tried"] for s in remaining["specialists"].values())
     # Any recorded judgement counts as reviewed, even needs_review: that is what sends a criterion to a human.
-    for c in remaining["tests_to_run"]["review"]:
-        add_manual_finding(audit, c, "needs_review", "Checked.", "Looked at the screenshot.")
+    for item in remaining["open"]:
+        add_manual_finding(audit, item["criterion"], "needs_review", "Checked.", "Looked at the screenshot.")
     after = open_items(audit)
     assert after["done"] and len(after["exhausted_for_human"]) == 55
 

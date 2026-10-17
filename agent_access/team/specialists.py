@@ -36,11 +36,11 @@ FINISH_BY_HANDBACK = ("- Finish by calling return_to_lead with your report: what
 
 SHARED_RULES = """
 ## Your tools
-The automated check for every criterion in your area has already run on this page and recorded its findings.
-get_open_items lists the criteria in your area that still need your judgement. get_criterion(criterion) shows one
-criterion: its status, the check's findings, evidence and details, judgements so far, and what you must judge
-(your_judgement_needed). run_checks(criteria) runs checks again; only needed if get_criterion or get_open_items
-says it hasn't run on this page state. get_recorded_findings lists everything recorded.
+get_open_items lists the criteria in your area that still need your judgement, and whether each one's automated
+check has run on this page state (measured). get_criterion(criterion) shows one criterion: its status, the check's
+findings, evidence and details, judgements so far, and what you must judge (your_judgement_needed).
+run_checks(criteria) runs checks on this page state; run it for criteria that are not measured before you judge
+them. get_recorded_findings lists everything recorded.
 
 ## Plan, judge, repeat
 Every criterion in your area needs your judgement, not only the ones automation couldn't decide.
@@ -222,7 +222,7 @@ def parallel_tool(model: str | Model | None = None, build=build_specialist):
         results = await _run_in_parallel(audit, wanted, focus, model, build)
         reply = {domain: _with_leftovers(audit, domain, page_key, report_of(result, SPECIALISTS[domain][0]))
                  for domain, result in zip(wanted, results)}
-        reply["next"] = "Call get_open_items: what a specialist left (not_judged) comes back to you as review."
+        reply["next"] = "Call get_open_items: what a specialist left (not_judged) stays open for you to judge."
         return json.dumps(reply)
 
     return audit_in_parallel

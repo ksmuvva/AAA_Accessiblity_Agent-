@@ -5,7 +5,7 @@ comes back through a handback handoff (`return_to_lead`) whose input is its repo
 the transcript and the code keeps a log of every transfer in `audit.handoffs`.
 
 The handoff tool names are the planning ids (`audit_forms`, `audit_media`, `audit_navigation`, `explore_page`,
-`verify_judgement`), so `get_open_items`' tests_to_run keys mean the same thing whether specialists are handoffs or
+`verify_judgement`), so `get_open_items`' specialist names mean the same thing whether specialists are handoffs or
 tools (`build_team(delegation=...)`), and the coverage loop marks the same ids as tried.
 """
 

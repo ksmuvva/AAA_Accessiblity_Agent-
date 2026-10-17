@@ -77,7 +77,7 @@ def test_unchecked_page_state_points_to_run_checks():
 
     (view, items), after, items_after = asyncio.run(scenario())
     assert "run_checks" in view["note"] and view["status"] == "not_tested"
-    assert "2.4.2" in items["tests_to_run"]["run_checks"]  # unmeasured: measure it with run_checks
-    assert not [t for t in items["tests_to_run"] if t.startswith("check_")]
+    by, by_after = ({i["criterion"]: i for i in x["open"]} for x in (items, items_after))
+    assert not by["2.4.2"]["measured"] and "2.4.2" in items["unmeasured"]  # unmeasured: measure it with run_checks
     assert "note" not in after and after["findings"]
-    assert "2.4.2" not in items_after["tests_to_run"].get("run_checks", []) and "2.4.2" not in items_after["unmeasured"]
+    assert by_after["2.4.2"]["measured"] and "2.4.2" not in items_after["unmeasured"]

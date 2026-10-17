@@ -151,7 +151,7 @@ def check_tools(criteria: list[str], *, include_all: bool) -> list[FunctionTool]
     tools = [function_tool(run_checks, description_override=(
         "Run the automated checks for these criteria on the loaded page now and record their findings (replacing earlier "
         "ones). Each check measures only what its rule needs, so this is the cheap way to measure a few criteria before "
-        "judging them. get_open_items lists unmeasured criteria under tests_to_run['run_checks']. Returns each check's "
+        "judging them. get_open_items marks criteria whose check hasn't run as measured: false. Returns each check's "
         "result, findings, details and what you must judge; then read details with get_criterion and record_findings."))]
     if include_all:
         async def run_all_checks(ctx: RunContextWrapper[AuditContext]) -> str:
