@@ -5,7 +5,7 @@ Agent_Access is a multi-agent WCAG 2.2 auditor on the **OpenAI Agents SDK** (`op
 
 - One rule per WCAG 2.2 criterion: **86 rules** (A/AA/AAA), each with a fixed name, e.g. `check_non_text_content` (1.1.1).
 - Technologies: axe-core, Playwright (Chromium), the Colour Contrast Analyser method, and NVDA (real via Guidepup, or emulated from the accessibility tree).
-- Flow: every page is measured in code (eager: all probes, then all 86 rules on load; lazy, the CLI default: the agents choose, and the target level is swept before a page is done). A lead agent plus forms/media/navigation specialists then judge **every** criterion (see the coverage contract). A reviewer re-checks every FAIL and every agent PASS, and a summary writer finishes.
+- Flow: every page is measured in code (eager: all probes, then all 86 rules on load; lazy, the CLI default: the agents choose, and the target level is swept before a page is done). A lead agent plus forms/media/navigation specialists then judge **every** criterion (see the coverage contract). A reviewer re-checks every FAIL and every agent PASS or NOT_APPLICABLE, and a summary writer finishes.
 - `--level A|AA|AAA` (default AA) sets the target. Criteria above it are reported as `beyond_target`: always tested in eager measurement, only when an agent asks in lazy (the CLI default).
 
 ## Working guidelines
@@ -136,12 +136,12 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 4. **Specialists** run nested `Runner.run`s on the same `AuditContext` (80 turns) over their own open items and report what they left (`not_judged`), which stays open for the lead.
 5. **Process** (`--process`): a separate lead run from the restored first page. **Site tests** re-run 3.2.3/3.2.4/3.2.6 on every page once all pages exist.
 6. **Coverage warnings** (pages not done, specialist leftovers) go to `outcome.warnings` and the report.
-7. **Reviewer** (its own model if set): restores each page and verifies every `FAIL` and every agent `PASS` in batches of 25. Agent items carry `automated_check` (the rule's results and details).
+7. **Reviewer** (its own model if set): restores each page and verifies every `FAIL` and every agent `PASS` or `NOT_APPLICABLE` in batches of 25. Agent items carry `automated_check` (the rule's results and details).
 8. **Summary writer** sees only the reviewed data and the warnings. Every stage tolerates failure; errors go to `outcome.errors`.
 
 ### Rules that aren't obvious from one file
 
-- **Reviewer:** an agent pass on a judgement criterion is reviewed **blind** (`reviewer.is_blind`): its brief carries the criterion's question, selectors and automated check, never the auditor's description or evidence, so the reviewer judges instead of agreeing. Its model defaults to the SDK's default when `--model` names another one (`orchestrator.default_reviewer_model`). Measured failures (`axe`/`custom`) stay fails unless `rejected` (`uncertain` keeps them). Agent fails and agent passes stay only if `confirmed`; otherwise they become `needs_review`, never `fail`, with `original_status` kept. A failed batch is `not_reviewed`; the others still run. Process-state results are kept and marked `not_reviewed`.
+- **Reviewer:** an agent pass on a judgement criterion, and every agent not-applicable, is reviewed **blind** (`reviewer.is_blind`): its brief carries the criterion's question, selectors and automated check, never the auditor's description or evidence, so the reviewer judges instead of agreeing. Its model defaults to the SDK's default when `--model` names another one (`orchestrator.default_reviewer_model`). Measured failures (`axe`/`custom`) stay fails unless `rejected` (`uncertain` keeps them). Agent fails, passes and not-applicables stay only if `confirmed`; otherwise they become `needs_review`, never `fail`, with `original_status` kept. A failed batch is `not_reviewed`; the others still run. Process-state results are kept and marked `not_reviewed`.
 - **Status precedence** (`report_tools._criterion_status`): fail > reviewer-demoted fail (needs_review) > agent pass > needs_review > not_applicable > automated-pass-only (needs_review) > not_tested. Doubt about a failure never becomes a pass. Across pages, the worst status wins.
 - **Agent judgements** (`add_manual_finding`): a new judgement replaces the same criterion's earlier agent findings that have a different status; same-status findings accumulate. Agent `fail`s are never overwritten; only the reviewer overturns them.
 - **Cross-page rules** (3.2.3/3.2.4/3.2.6) record `needs_review` with a reason on a single page or with nothing to compare; 3.2.4 compares only destinations linked from every audited page.

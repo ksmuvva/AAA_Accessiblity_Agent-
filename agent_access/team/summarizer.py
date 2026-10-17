@@ -7,6 +7,7 @@ import json
 from agents import Agent, RunConfig, Runner
 from agents.models.interface import Model
 
+from agent_access.context import AuditContext
 from agent_access.models import AuditSummary, SiteReport, Status
 from agent_access.team.guardrails import apply_guardrails
 
@@ -57,10 +58,11 @@ def summary_input(report: SiteReport, lead_notes: list[str], review_log: list[di
 
 
 async def write_summary(report: SiteReport, lead_notes: list[str], review_log: list[dict],
-                        model: str | Model | None = None, *, warnings: list[str] | None = None,
+                        model: str | Model | None = None, *, audit: AuditContext, warnings: list[str] | None = None,
                         run_config: RunConfig | None = None, writer: Agent | None = None) -> AuditSummary:
-    """Write the summary with `writer` (e.g. the team's guarded summary writer) or a fresh one for the report's level."""
+    """Write the summary with `writer` (e.g. the team's guarded summary writer) or a fresh one for the report's level.
+    `audit` is the run context: the output guardrail reads its findings to decide whether a conformance claim holds."""
     writer = writer or build_summarizer(model, report.target_level)
-    result = await Runner.run(writer, summary_input(report, lead_notes, review_log, warnings), max_turns=3,
-                              run_config=run_config)
+    result = await Runner.run(writer, summary_input(report, lead_notes, review_log, warnings), context=audit,
+                              max_turns=3, run_config=run_config)
     return result.final_output

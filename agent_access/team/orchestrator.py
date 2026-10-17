@@ -299,7 +299,7 @@ async def run_audit(
 
     # Review even after an early stop: whatever was recorded still reaches the report.
     if review and any(needs_review_check(f) for f in audit.findings):
-        progress("Reviewer: verifying failures and judged passes...")
+        progress("Reviewer: verifying failures, judged passes and not-applicable verdicts...")
         outcome.review_log, review_errors = await review_findings(audit, reviewer_model)
         outcome.errors += review_errors
         outcome.memory = remember_run_safely(audit, outcome)
@@ -313,7 +313,7 @@ async def run_audit(
     progress("Summary writer: writing summary...")
     try:
         outcome.summary = await write_summary(outcome.report, outcome.lead_notes, outcome.review_log, model,
-                                              warnings=outcome.warnings,
+                                              audit=audit, warnings=outcome.warnings,
                                               run_config=run_config(audit, "WCAG audit: summary"))
     except AGENT_ERRORS as exc:
         outcome.errors.append(_err("summary writer", exc))

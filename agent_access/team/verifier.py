@@ -3,7 +3,7 @@ the judgement against the live page (inspects the selectors, re-runs the criteri
 self-verification tools), records the finding itself with its own evidence, and hands back a Verification.
 
 This is the self-verification loop inside the team: a second look before the reviewer's. The reviewer still
-re-checks every fail and every agent pass at the end.
+re-checks every fail and every agent pass or not-applicable at the end.
 """
 
 from __future__ import annotations

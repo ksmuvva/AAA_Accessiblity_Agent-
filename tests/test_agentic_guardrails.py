@@ -156,6 +156,28 @@ def test_summary_may_not_claim_conformance_the_results_dont_support():
     assert [(t["kind"], t["action"]) for t in audit.tripwires] == [("conformance_claim", "halted")]
 
 
+def test_write_summary_gives_the_guardrail_the_audit_it_summarises():
+    """The production path: write_summary used to run the writer without the audit as context, so the first summary
+    that matched a claim pattern crashed the guardrail (AttributeError on None) and the whole run with it."""
+    from agent_access.models import SiteReport
+    from agent_access.team.summarizer import write_summary
+
+    claim = {**SUMMARY, "overall_assessment": "The page is fully accessible and WCAG 2.2 AA compliant."}
+    model = RouterModel({"summary writer": [claim, SUMMARY]})
+    report = SiteReport(target_level="AA", pages=[], counts={}, criteria=[])
+
+    async def scenario():
+        audit = AuditContext(screen_reader="emulated")
+        audit.findings = [_finding(Status.FAIL)]
+        with pytest.raises(OutputGuardrailTripwireTriggered):
+            await write_summary(report, [], [], audit=audit, run_config=_config(model))
+        return audit, await write_summary(report, [], [], audit=audit, run_config=_config(model))
+
+    audit, summary = asyncio.run(scenario())
+    assert summary.overall_assessment == SUMMARY["overall_assessment"]
+    assert [(t["kind"], t["action"]) for t in audit.tripwires] == [("conformance_claim", "halted")]
+
+
 def test_apply_guardrails_copies_tools_and_is_idempotent():
     first = apply_guardrails(build_audit_agent())
     again = apply_guardrails(apply_guardrails(build_audit_agent()))

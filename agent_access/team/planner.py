@@ -435,8 +435,8 @@ def planner_tools(state: PlanState) -> list:
 
     @function_tool
     async def review_pages(ctx: RunContextWrapper[AuditContext]) -> str:
-        """Have the reviewer re-check every failure and every agent pass on every page. Runs once; the code runs it anyway
-        at the end if you don't."""
+        """Have the reviewer re-check every failure and every agent pass or not-applicable on every page. Runs once; the
+        code runs it anyway at the end if you don't."""
         if state.reviewed:
             return json.dumps({"ok": True, "note": "already reviewed"})
         log, errors = await _review(ctx.context, state)
@@ -524,7 +524,7 @@ async def _summarise(audit: AuditContext, state: PlanState) -> bool:
     if report is None:
         return False
     try:
-        state.summary = await write_summary(report, state.lead_notes, state.review_log, state.model,
+        state.summary = await write_summary(report, state.lead_notes, state.review_log, state.model, audit=audit,
                                             warnings=coverage_warnings(audit, accepted_skips(state)),
                                             run_config=run_config(audit, "WCAG audit: summary"))
         _log(audit, "summary")
@@ -599,7 +599,7 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
         await run_site_tests(audit)
     outcome.warnings = coverage_warnings(audit, accepted_skips(state))
     if not state.reviewed and not budget.hard_exhausted:
-        progress("Reviewer: verifying failures and judged passes...")
+        progress("Reviewer: verifying failures, judged passes and not-applicable verdicts...")
         await _review(audit, state)
     elif state.review and not budget.hard_exhausted:
         # Findings recorded after the planner's review (a floor sweep at finish, a floor lead pass) are reviewed too,
