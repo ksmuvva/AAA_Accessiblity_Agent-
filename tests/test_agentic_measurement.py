@@ -111,10 +111,16 @@ def test_the_report_says_which_criteria_above_the_target_were_not_measured():
             await measure_on_load(audit)
             await run_checks_now(audit, ["1.4.6"])
             await run_sweep_remaining(audit)
-            return render_markdown(AuditOutcome(report=compile_site_report(audit))), len(audit.beyond_target_rules())
+            report = compile_site_report(audit)
+            md = render_markdown(AuditOutcome(report=report, tool_runs=audit.tool_runs))
+            # A check that ran (e.g. on another page) counts as measured even when the criterion's status is not_tested.
+            extra = dict(audit.tool_runs[-1], criteria="1.4.8")
+            md_extra = render_markdown(AuditOutcome(report=report, tool_runs=[*audit.tool_runs, extra]))
+            return md, md_extra, len(audit.beyond_target_rules())
 
-    md, beyond = asyncio.run(scenario())
-    assert f"1 higher-level criteria were also tested; {beyond - 1} were not measured" in md
+    md, md_extra, beyond = asyncio.run(scenario())
+    assert f"1 higher-level criteria were also tested; {beyond - 1} were not measured on any page" in md
+    assert f"2 higher-level criteria were also tested; {beyond - 2} were not measured on any page" in md_extra
 
 
 def test_the_floor_measures_everything_when_the_target_is_aaa():

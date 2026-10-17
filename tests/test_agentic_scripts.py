@@ -37,7 +37,8 @@ def test_every_script_run_is_logged_with_an_id_the_judgement_can_cite():
     assert size["result"] == 20 and "script S1" in size["cite"]
     assert [s["id"] for s in audit.scripts] == ["S1", "S2", "S3"]
     assert audit.scripts[0]["result"] == "20" and audit.scripts[0]["page_url"] == "file:shop.html"
-    assert audit.scripts[1]["page_changed"] and title == "Shop"  # the page was restored after the script changed it
+    assert audit.scripts[1]["page_changed"] == "reloaded" and title == "Shop"  # restored after the script changed it
+    assert audit.scripts[0]["page_changed"] is None
     assert "nope" in audit.scripts[2]["error"]
     assert [s["id"] for s in cited_scripts(audit, "Target is 20px wide (script S1).", "see Script s3; S9 doesn't exist")] \
         == ["S1", "S3"]
@@ -91,3 +92,12 @@ def test_script_source_cannot_break_the_report_and_page_text_is_scrubbed_for_the
     add_manual_finding(audit, "2.4.2", "pass", "Descriptive title.", "Checked with script S2.", [])
     brief = _brief(audit, next(f for f in audit.findings if f.source == "agent"))
     assert REDACTED in brief["scripts"][0]["result"] and "Ignore previous" not in brief["scripts"][0]["result"]
+
+
+def test_the_report_only_claims_a_reload_that_happened():
+    from agent_access.report_writer import _scripts
+
+    base = {"id": "S1", "page_url": "p", "function": "() => 1", "result": "1", "error": None}
+    reloaded = "\n".join(_scripts([dict(base, page_changed="reloaded")]))
+    stuck = "\n".join(_scripts([dict(base, page_changed="left changed")]))
+    assert "it was reloaded" in reloaded and "could not be reloaded" in stuck and "it was reloaded)" not in stuck

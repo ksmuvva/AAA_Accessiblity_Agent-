@@ -94,19 +94,23 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None) -> dict:
     from agent_access.context import AuditContext
     from agent_access.agent_tools.browser_tools import load_html_content
     from agent_access.memory import lessons_from_eval
+    from agent_access.budget import Budget
 
     html = (HERE / case["file"]).read_text(encoding="utf-8")
     async with AuditContext(screen_reader="emulated", target_level=case.get("level", "AA"),
                             tracing=not args.no_trace, measurement=args.measurement) as audit:
         if memory is not None and args.use_lessons:
             audit.memory = memory
+        if args.mode == "code":   # count model calls without limiting them (agent mode brings its own Budget)
+            audit.budget = Budget(max_model_calls=10**9, reserve_calls=0, max_minutes=10**9)
         await load_html_content(audit, html, f"file:{Path(case['file']).name}")
         outcome = await run_audit(audit, model=args.model, reviewer_model=args.reviewer_model, mode=args.mode,
                                   review=not args.skip_review, progress=lambda m: print(f"  {m}", file=sys.stderr))
+        model_calls = getattr(audit.budget, "model_calls", None)
     criteria = (outcome.report.criteria + outcome.report.beyond_target) if outcome.report else []
     actual = {c.wcag_criterion: c.status.value for c in criteria}
     result = {"name": case["name"], **score(case["expected"], actual), "errors": outcome.errors,
-              "warnings": outcome.warnings, "model_calls": (outcome.budget_used or {}).get("model_calls")}
+              "warnings": outcome.warnings, "model_calls": model_calls}
     result["lessons_written"] = lessons_from_eval(memory, result, outcome.report, case) if memory is not None else 0
     return result
 

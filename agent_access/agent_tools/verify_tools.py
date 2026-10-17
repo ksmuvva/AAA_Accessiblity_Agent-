@@ -185,6 +185,7 @@ async def evaluate_script(audit: AuditContext, function: str) -> dict:
         after = await page.evaluate(FINGERPRINT_JS)
     except Exception:
         after = None
+    restored = None   # None: the page didn't change; True/False: it changed and was (not) reloaded
     if after != before:
         # Restore outside the guard: inside it the reload itself would be answered with a 204.
         restored = await audit.restore_page(page_key) if audit.can_restore(page_key) else False
@@ -196,7 +197,8 @@ async def evaluate_script(audit: AuditContext, function: str) -> dict:
     script_id = f"S{len(audit.scripts) + 1}"
     audit.scripts.append({"id": script_id, "page_url": page_key, "function": function,
                           "result": json.dumps(result.get("result"), default=str)[:MAX_LOGGED_RESULT_CHARS],
-                          "error": result.get("error"), "page_changed": "page_changed" in result})
+                          "error": result.get("error"),
+                          "page_changed": None if restored is None else ("reloaded" if restored else "left changed")})
     result["script_id"] = script_id
     result["cite"] = (f"If a judgement relies on this result, put 'script {script_id}' in its evidence: the reviewer "
                       "re-runs the scripts a judgement cites.")

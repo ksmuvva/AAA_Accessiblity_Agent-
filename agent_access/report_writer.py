@@ -71,6 +71,11 @@ def _tests_run(runs: list[dict], multi: bool) -> list[str]:
     return lines + [""]
 
 
+SCRIPT_PAGE_NOTE = {"reloaded": " (the script changed the page; it was reloaded)",
+                    "left changed": " (the script changed the page and it could not be reloaded; later results may "
+                                    "describe the changed page)"}
+
+
 def _scripts(scripts: list[dict]) -> list[str]:
     """The read-only scripts the agents wrote and ran, so a reader can re-run the evidence a judgement cites."""
     lines = ["## Agent scripts", "",
@@ -80,7 +85,7 @@ def _scripts(scripts: list[dict]) -> list[str]:
         # A fence longer than any backtick run in the script, so the script can't close it.
         fence = "`" * max(3, 1 + max((len(run) for run in re.findall(r"`+", s["function"])), default=0))
         lines += [f"### {s['id']} on {_md_escape(s['page_url'])}", "", fence + "js", s["function"], fence, "",
-                  _md_escape(got) + (" (the script changed the page; it was reloaded)" if s["page_changed"] else ""), ""]
+                  _md_escape(got) + SCRIPT_PAGE_NOTE.get(s["page_changed"], ""), ""]
     return lines
 
 
@@ -182,11 +187,14 @@ def render_markdown(outcome: AuditOutcome) -> str:
 
     if report.beyond_target:
         b = report.beyond_target_counts
-        unmeasured = b.get(Status.NOT_TESTED.value, 0)
+        # From the check runs, not the aggregated status: a check that ran on one page and not another still ran.
+        ran = {r["criteria"] for r in outcome.tool_runs}
+        unmeasured = sum(1 for c in report.beyond_target if c.wcag_criterion not in ran)
         tested = len(report.beyond_target) - unmeasured
         lines += [f"## Beyond the Level {report.target_level} target", "",
                   f"{tested} higher-level criteria were also tested"
-                  + (f"; {unmeasured} were not measured, because no agent chose to run their checks" if unmeasured else "")
+                  + (f"; {unmeasured} were not measured on any page, because no agent chose to run their checks"
+                     if unmeasured else "")
                   + f". They don't affect Level {report.target_level} conformance.", "",
                   "| Status | Criteria |", "|---|---|"] + [f"| {STATUS_LABEL[s]} | {b.get(s.value, 0)} |" for s in TABLE_ORDER] + [""]
         lines += _criteria_sections(report.beyond_target, multi, heading_prefix="Beyond target: ")
