@@ -96,6 +96,12 @@ def needs_review_check(f: Finding) -> bool:
 MAX_DETAILS_CHARS = 700
 
 
+def _scrubbed(text: str | None) -> str | None:
+    from agent_access.team.guardrails import scrub
+
+    return scrub(text)[0] if text else text
+
+
 def _brief(audit: AuditContext, f: Finding) -> dict:
     brief = {"finding_id": f.id, "status": f.status.value,
              "criterion": f"{f.wcag_criterion} {audit.catalogue.get(f.wcag_criterion).title}",
@@ -113,8 +119,9 @@ def _brief(audit: AuditContext, f: Finding) -> dict:
         }
         scripts = cited_scripts(audit, f.description, f.evidence)
         if scripts:
-            brief["scripts"] = [{"id": x["id"], "function": x["function"], "result": x["result"], "error": x["error"]}
-                                for x in scripts]
+            # A script's result can carry page text; the brief is model input, so it gets the same scrub as tool output.
+            brief["scripts"] = [{"id": x["id"], "function": x["function"], "result": _scrubbed(x["result"]),
+                                 "error": _scrubbed(x["error"])} for x in scripts]
     return brief
 
 

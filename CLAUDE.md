@@ -5,7 +5,7 @@ Agent_Access is a multi-agent WCAG 2.2 auditor on the **OpenAI Agents SDK** (`op
 
 - One rule per WCAG 2.2 criterion: **86 rules** (A/AA/AAA), each with a fixed name, e.g. `check_non_text_content` (1.1.1).
 - Technologies: axe-core, Playwright (Chromium), the Colour Contrast Analyser method, and NVDA (real via Guidepup, or emulated from the accessibility tree).
-- Flow: every page is swept in code (all probes, then all 86 rules). A lead agent plus forms/media/navigation specialists then judge **every** criterion (see the coverage contract). A reviewer re-checks every FAIL and every agent PASS, and a summary writer finishes.
+- Flow: every page is measured in code (eager: all probes, then all 86 rules on load; lazy, the CLI default: the agents choose, and the target level is swept before a page is done). A lead agent plus forms/media/navigation specialists then judge **every** criterion (see the coverage contract). A reviewer re-checks every FAIL and every agent PASS, and a summary writer finishes.
 - `--level A|AA|AAA` (default AA) sets the target. Criteria above it are reported as `beyond_target`: always tested in eager measurement, only when an agent asks in lazy (the CLI default).
 
 ## Working guidelines
@@ -130,7 +130,7 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 
 ### How a run flows (`team/orchestrator.py`)
 
-1. **Sweep** every loaded page: all probes, then all 86 rules (`engine.run_sweep`). Process states skip the form tests.
+1. **Sweep** every loaded page: all probes, then all 86 rules (`engine.run_sweep`; in lazy measurement only the cheap probes, and the target-level floor later). Process states skip the form tests.
 2. **Pages are iterated in code.** With `--pages N`, the page picker (a no-tools agent) chooses N-1 same-site links; its picks are checked against the real links and gaps filled in link order.
 3. **Lead loop, once per page,** in a fresh run: `get_open_items` -> the lead chooses: measure (`run_checks`), delegate, or read with `get_criterion` and judge (`record_finding(s)`) -> repeat until `done`. If the page isn't done, the lead gets a fresh continuation run: the first always, later ones only while the previous run settled something (`LEAD_RUNS_PER_PAGE = 4`).
 4. **Specialists** run nested `Runner.run`s on the same `AuditContext` (80 turns) over their own open items and report what they left (`not_judged`), which stays open for the lead.
@@ -257,7 +257,7 @@ rule; agents measure with `run_checks(criteria)`, `run_all_checks()`). **Floor:*
 page_key)` runs every *target-level* rule (`target_tools`) not yet run on the page; the planner/orchestrator calls it
 before a page is done, so lazy never leaves the target unmeasured. Above-target rules run only if an agent asks; the
 rest stay `not_tested` and the report says they were not measured. It reloads the page first unless the browser is provably on it; a labelled state can't be reloaded, so
-its unrun checks stay "never measured". `open_items` adds `unmeasured` and `measurement`; an unrun check shows as `run_checks`. Rules only ever
+its unrun checks stay "never measured". `open_items` adds `unmeasured` and `measurement`; an unrun check shows as `measured: false`. Rules only ever
 see default-state probe data (G5's `run_probe` with options is never cached). Test:
 `python -m pytest -n 0 tests/test_agentic_measurement.py`.
 <!-- G6 end -->

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,8 +59,9 @@ def _result_text(findings: dict) -> str:
 def _tests_run(runs: list[dict], multi: bool) -> list[str]:
     """One row per criterion tool per page, including tools that found nothing."""
     lines = ["## Tests run", "",
-             f"{len(runs)} criterion tool run(s): one tool per WCAG 2.2 success criterion, run in code on every page "
-             "regardless of the agents' choices.", ""]
+             f"{len(runs)} criterion tool run(s): one tool per WCAG 2.2 success criterion. Every check at the target "
+             "level runs in code on every page; with lazy measurement the agents choose when, and checks above the "
+             "target run only if an agent asked for them.", ""]
     header = "| " + ("Page | " if multi else "") + "Criterion | Level | Tool | Technologies | Result | Time |"
     lines += [header, "|---" * (header.count("|") - 1) + "|"]
     for r in runs:
@@ -75,7 +77,9 @@ def _scripts(scripts: list[dict]) -> list[str]:
              "Read-only scripts the agents ran in the page. A judgement that relies on one cites its id in its evidence.", ""]
     for s in scripts:
         got = f"error: {s['error']}" if s["error"] else f"result: {s['result']}"
-        lines += [f"### {s['id']} on {s['page_url']}", "", "```js", s["function"], "```", "",
+        # A fence longer than any backtick run in the script, so the script can't close it.
+        fence = "`" * max(3, 1 + max((len(run) for run in re.findall(r"`+", s["function"])), default=0))
+        lines += [f"### {s['id']} on {_md_escape(s['page_url'])}", "", fence + "js", s["function"], fence, "",
                   _md_escape(got) + (" (the script changed the page; it was reloaded)" if s["page_changed"] else ""), ""]
     return lines
 

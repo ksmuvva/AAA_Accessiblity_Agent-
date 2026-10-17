@@ -37,7 +37,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     source.add_argument("url", nargs="?", help="http(s) URL of the page to audit")
     source.add_argument("--html-file", type=Path, help="local HTML file to audit instead of a URL")
     parser.add_argument("--level", choices=["A", "AA", "AAA"], default="AA",
-                        help="conformance target (default AA); all 86 criteria are tested either way")
+                        help="conformance target (default AA); criteria above it are tested in eager measurement, "
+                             "and in lazy measurement only when an agent asks")
     parser.add_argument("--screen-reader", choices=["auto", "nvda", "emulated"], default="auto",
                         help="auto: real NVDA when installed (opens a visible browser; NVDA speaks aloud); "
                              "nvda: require NVDA; emulated: Chromium accessibility tree only")

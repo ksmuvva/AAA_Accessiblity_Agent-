@@ -183,8 +183,7 @@ def coverage_warnings(audit: AuditContext, skipped: dict[str, str] | None = None
         if skipped and page_key in skipped:
             warnings.append(f"{page_key}: skipped by the audit planner ({skipped[page_key]}); the skip reviewer accepted "
                             f"the reason, so its {items['open_count']} open criteria have automated results only.")
-            continue
-        if not items.get("done"):
+        elif not items.get("done"):
             warnings.append(f"{page_key}: the lead auditor stopped with {items['open_count']} criteria still open: "
                             + ", ".join(i["criterion"] for i in items["open"]) + ".")
         if unmeasured := items.get("unmeasured"):

@@ -54,6 +54,9 @@ def _run(scripts, tmp_path, **kwargs):
     async def scenario():
         async with AuditContext(output_dir=tmp_path, screen_reader="emulated", tracing=False) as audit:
             await load_html_content(audit, (FIXTURES / "bad_page.html").read_text(encoding="utf-8"), PAGE)
+            if kwargs.pop("measured", False):   # as run_audit does: the start page is measured before the planner starts
+                from agent_access.engine import run_sweep
+                await run_sweep(audit)
             if kwargs.pop("explorer_state", False):   # as if the explorer had labelled a state: swept, not forced through the lead
                 audit.set_current(PAGE + " [after search]")
                 audit.current_url = PAGE
@@ -179,13 +182,14 @@ def _skip_scripts(verdict, lead):
 
 
 def test_an_accepted_skip_lets_the_planner_finish_and_is_reported_with_its_reason(tmp_path):
-    model, audit, outcome = _run(_skip_scripts("accepted", lead=[]), tmp_path)
+    model, audit, outcome = _run(_skip_scripts("accepted", lead=[]), tmp_path, measured=True)
     reviewed = last_tool_output(model, "audit planner", 1)
     assert '"verdict": "accepted"' in reviewed
     finished = last_tool_output(model, "audit planner", 2)
     assert '"ok": true' in finished and PAGE in finished           # no hard floor: the justified skip stands
     profile = model.inputs["skip reviewer"][0][-1]["content"]
-    assert '"headings"' in profile and '"audited_pages": []' in profile  # it judged from the pages' profiles
+    assert '"headings": 1' in profile and '"landmarks": [' in profile   # built from the measured page's probe data
+    assert '"audited_pages": []' in profile
     actions = [e["action"] for e in outcome.plan_log]
     assert "skip_pages" in actions and "lead_floor" not in actions  # the lead was never forced onto the page
     assert any("skipped by the audit planner (An error page with nothing to audit.)" in w for w in outcome.warnings)
@@ -200,3 +204,13 @@ def test_a_rejected_skip_still_gets_its_lead_pass(tmp_path):
     assert "lead_floor" in [e["action"] for e in outcome.plan_log]
     assert not model.scripts["lead auditor"]                        # the code floor audited the rejected page
     assert not any("skipped by the audit planner" in w for w in outcome.warnings)
+
+
+def test_a_skipped_page_that_was_audited_anyway_is_not_reported_as_skipped():
+    from agent_access.team.planner import PlanState, accepted_skips
+
+    state = PlanState(team=None, model=None, reviewer_model=None, review=True, min_pages=1, max_pages=1)
+    state.skips = {"a": {"reason": "duplicate", "verdict": "accepted"}, "b": {"reason": "error page", "verdict": "accepted"},
+                   "c": {"reason": "saves budget", "verdict": "rejected"}}
+    state.lead_runs = {"b": 1}
+    assert accepted_skips(state) == {"a": "duplicate"}

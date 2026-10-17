@@ -134,8 +134,9 @@ def page_profile(audit: AuditContext, page_key: str) -> dict:
     def count(value) -> int:
         return len(value) if isinstance(value, list) else int(value or 0)
 
+    landmarks = page.get("landmarks") or {}  # {"main": ..., "nav": ..., "banner": ..., "contentinfo": ...}
     return {"page": page_key, "title": page.get("title"), "words": page.get("word_count"),
-            "headings": page.get("heading_count"), "landmarks": count(page.get("landmarks")),
+            "headings": page.get("heading_count"), "landmarks": sorted(k for k, v in landmarks.items() if v),
             "links": count(page.get("links")), "images": count(page.get("images")), "tables": count(page.get("tables")),
             "sign_in_fields": count(page.get("password_fields")), "carousels": count(page.get("carousels")),
             "media": sum(count(media.get(k)) for k in ("videos", "audio", "player_iframes")),
@@ -266,20 +267,25 @@ def _unaudited(audit: AuditContext, state: PlanState, *, skipped_ok: bool = True
             and not (skipped_ok and state.skips.get(p, {}).get("verdict") == "accepted")]
 
 
+def accepted_skips(state: PlanState) -> dict[str, str]:
+    """Pages skipped with the skip reviewer's agreement and never audited afterwards, with the planner's reason."""
+    return {p: v["reason"] for p, v in state.skips.items() if v["verdict"] == "accepted" and not state.lead_runs.get(p)}
+
+
 async def review_skips(audit: AuditContext, state: PlanState, skips: list[PageSkip]) -> list[dict]:
     """Have the skip reviewer accept or reject each skip. A skip it can't review (an error, no verdict) is rejected,
     so a failed review falls back to the old floor: the page gets its lead pass."""
-    audited = [p for p in audit.pages if state.lead_runs.get(p)]
-    payload = {"skips": [s.model_dump() for s in skips], "audited_pages": audited,
-               "profiles": [page_profile(audit, p) for p in audit.pages if p in state.opened]}
-    prompt, _ = scrub(json.dumps(payload))
     by_page: dict[str, SkipVerdict] = {}
     error = None
     try:
+        audited = [p for p in audit.pages if state.lead_runs.get(p)]
+        payload = {"skips": [s.model_dump() for s in skips], "audited_pages": audited,
+                   "profiles": [page_profile(audit, p) for p in audit.pages if p in state.opened]}
+        prompt, _ = scrub(json.dumps(payload, default=str))
         result = await Runner.run(build_skip_reviewer(state.reviewer_model or state.model), prompt, context=audit,
                                   max_turns=SKIP_REVIEW_MAX_TURNS, run_config=run_config(audit, "WCAG audit: skip review"))
         by_page = {v.page: v for v in result.final_output.verdicts}
-    except AGENT_ERRORS as exc:
+    except Exception as exc:  # any failure, including building the profiles, rejects: the old floor then applies
         error = _err("skip reviewer", exc)
         state.errors.append(error)
     verdicts = []
@@ -307,7 +313,7 @@ def planner_tools(state: PlanState) -> list:
             "pages": pages,
             "interaction_allowed": audit.allow_interaction, "explorer_available": getattr(state.team, "explorer", None) is not None,
             "site_tests_done": state.site_tests_done, "reviewed": state.reviewed, "summary_written": state.summary is not None,
-            "tripwires": len(audit.tripwires), "coverage_warnings": coverage_warnings(audit)[:10],
+            "tripwires": len(audit.tripwires), "coverage_warnings": coverage_warnings(audit, accepted_skips(state))[:10],
         }
 
     @function_tool
@@ -483,7 +489,7 @@ def planner_tools(state: PlanState) -> list:
                                "note": "These pages were opened but never audited, and no accepted skip covers them. "
                                        "Call audit_pages, or skip_pages with a reason for each."})
         state.finished = reason
-        skipped = [p for p, v in state.skips.items() if v["verdict"] == "accepted"]
+        skipped = list(accepted_skips(state))
         _log(audit, "finish", reason=reason, unaudited=unaudited, skipped=skipped)
         return json.dumps({"ok": True, "unaudited_pages_become_warnings": unaudited, "accepted_skips": skipped})
 
@@ -515,7 +521,8 @@ async def _summarise(audit: AuditContext, state: PlanState) -> bool:
         return False
     try:
         state.summary = await write_summary(report, state.lead_notes, state.review_log, state.model,
-                                            warnings=coverage_warnings(audit), run_config=run_config(audit, "WCAG audit: summary"))
+                                            warnings=coverage_warnings(audit, accepted_skips(state)),
+                                            run_config=run_config(audit, "WCAG audit: summary"))
         _log(audit, "summary")
         return True
     except AGENT_ERRORS as exc:
@@ -586,8 +593,7 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
             await run_sweep_remaining(audit)
     if not state.site_tests_done and audit.swept:
         await run_site_tests(audit)
-    outcome.warnings = coverage_warnings(audit, skipped={p: v["reason"] for p, v in state.skips.items()
-                                                         if v["verdict"] == "accepted"})
+    outcome.warnings = coverage_warnings(audit, accepted_skips(state))
     if not state.reviewed and not budget.hard_exhausted:
         progress("Reviewer: verifying failures and judged passes...")
         await _review(audit, state)
