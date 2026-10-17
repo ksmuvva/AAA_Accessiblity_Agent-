@@ -427,6 +427,7 @@ def planner_tools(state: PlanState) -> list:
         if level in LEVEL_ORDER and LEVEL_ORDER[level] > LEVEL_ORDER[audit.target_level]:
             changes.append(f"level {audit.target_level} -> {level}")
             audit.target_level = level
+            state.exhausted.clear()   # pages worked to a stop at the old level have the new level's criteria open
         if new_flows := [f for f in flows if f and f not in state.flows]:
             state.flows += new_flows
             changes.append(f"flows + {new_flows}")
@@ -671,9 +672,11 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
 
     # Floors: the lead is worked on every page and rebuildable state it still owes while budget remains; then site
     # tests, review, summary.
-    for page_key in _unaudited(audit, state):
-        if budget.exhausted:
-            break
+    floored: set[str] = set()
+    # Recomputed after every run: a lead run can add states (an exploration it delegated) that are owed too.
+    while not budget.exhausted and (pending := [p for p in _unaudited(audit, state) if p not in floored]):
+        page_key = pending[0]
+        floored.add(page_key)
         progress(f"Lead auditor (floor): {page_key}")
         await run_lead_on(audit, state, page_key, "")   # the same team lead and handback as audit_pages
         _log(audit, "lead_floor", page=page_key)

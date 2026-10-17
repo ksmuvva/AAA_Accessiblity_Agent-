@@ -286,8 +286,9 @@ async def label_state(audit: AuditContext, label: str) -> dict:
     if key not in audit.swept:
         result["automated_sweep"] = sweep_summary(await run_sweep(audit))
         # The sweep's interactive checks can't reload a state, so they may leave it changed (a toggled menu, a #main
-        # fragment). Rebuild it, so the next step starts from the state that was labelled and later states replay.
-        if key in audit.state_paths and await page_fingerprint(audit) != fingerprint and not await audit.restore_state(key):
+        # fragment, focus moved off the field a next key press needs) in ways a fingerprint can't always see. Rebuild
+        # it, so the next step starts from the state that was labelled and later states replay.
+        if key in audit.state_paths and not await audit.restore_state(key):
             origin = audit.state_paths.pop(key)["origin"]
             result["note"] = (f"The automated checks changed this state and replaying its steps did not rebuild it, so "
                               f"the browser is back on {origin}. Redo the steps from there to reach later states.")

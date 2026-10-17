@@ -43,12 +43,12 @@ def judge(criterion, status="pass"):
                                    "evidence": "Seen in the page outline and the accessibility tree.", "selectors": ["main"]})
 
 
-def run(scripts, tmp_path, *, labelled_state=False, interaction=False):
+def run(scripts, tmp_path, *, labelled_state=False, interaction=False, level="AA"):
     model = RouterModel(scripts)
 
     async def scenario():
         async with AuditContext(output_dir=tmp_path, screen_reader="emulated", tracing=False,
-                                allow_interaction=interaction) as audit:
+                                allow_interaction=interaction, target_level=level) as audit:
             await load_html_content(audit, HTML, PAGE)
             from agent_access.engine import run_sweep
             await run_sweep(audit)
@@ -209,6 +209,52 @@ document.getElementById('menu').addEventListener('click', (ev) => {
     assert closed["headings"] == opened["headings"] and closed["controls"] == opened["controls"]   # what it missed
     assert closed != opened and opened["links"] == closed["links"] + 2 and opened["states"] == ["BUTTON:Menu"]
     assert opened != filled and filled["values"] == ["shoes"]
+
+
+def test_raising_the_level_reopens_pages_worked_to_a_stop(tmp_path):
+    scripts = {
+        "audit planner": [call("audit_pages", {"page_keys": [PAGE], "focus": ""}),            # worked to a stop at A
+                          call("set_goal", {"pages": 1, "level": "AA", "flows": [], "reason": "a form needs AA"}),
+                          call("finish", {"reason": "done"}),                                  # refused: AA is owed
+                          call("audit_pages", {"page_keys": [PAGE], "focus": ""}),
+                          call("finish", {"reason": "done"}), PLAN_DONE],
+        "lead auditor": [FINAL] * 4,
+        "reviewer": [confirm_all],
+        "summary writer": [SUMMARY],
+    }
+    model, audit, outcome = run(scripts, tmp_path, level="A")
+    refused = tool_outputs(model, "audit planner", 3)[-1]
+    assert '"ok": false' in refused and PAGE in refused
+    assert '"ok": true' in tool_outputs(model, "audit planner", 5)[-1] and not model.scripts["lead auditor"]
+
+
+def test_the_floor_also_works_states_that_a_floor_run_added(tmp_path):
+    scripts = {
+        "audit planner": [PLAN_DONE] * 3,       # it stops at once, and again on each hand-back: the code floor runs
+        "lead auditor": [call("click_element", {"selector": "#open"}), call("label_page_state", {"label": "settings-open"}),
+                         FINAL, FINAL,          # the page: run 1 labels a state, run 2 is the continuation
+                         FINAL, FINAL],         # the state it added, worked by the same floor
+        "reviewer": [confirm_all] * 2,
+        "summary writer": [SUMMARY],
+    }
+    model, audit, outcome = run(scripts, tmp_path, interaction=True)
+    floored = [e["page"] for e in outcome.plan_log if e["action"] == "lead_floor"]
+    assert floored == [PAGE, STATE] and not model.scripts["lead auditor"]
+
+
+def test_label_state_hands_back_the_state_as_labelled_focus_included():
+    """The sweep's shortcut check blurs the focused element; the next key press must still reach the field."""
+    async def scenario():
+        async with AuditContext(screen_reader="emulated", tracing=False) as audit:
+            # Nothing for the sweep to toggle, so the page looks the same afterwards: only the focus has moved.
+            await load_html_content(audit, '<!doctype html><html lang="en"><head><title>Search - Ferries</title></head>'
+                                    '<body><main><h1>Search</h1><label for="q">Search</label><input id="q"></main>'
+                                    '</body></html>', PAGE)
+            await click(audit, "#q")
+            await label_state(audit, "search-focused")
+            return await (await audit.page()).evaluate("() => document.activeElement.id")
+
+    assert asyncio.run(scenario()) == "q"
 
 
 def test_a_state_is_rebuilt_only_when_its_steps_still_reach_it():
