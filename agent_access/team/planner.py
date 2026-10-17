@@ -398,7 +398,7 @@ async def _summarise(audit: AuditContext, state: PlanState) -> bool:
     if report is None:
         return False
     try:
-        state.summary = await write_summary(report, state.lead_notes, state.review_log, state.model,
+        state.summary = await write_summary(report, state.lead_notes, state.review_log, state.model, audit=audit,
                                             warnings=coverage_warnings(audit), run_config=run_config(audit, "WCAG audit: summary"))
         _log(audit, "summary")
         return True
@@ -472,7 +472,7 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
         await run_site_tests(audit)
     outcome.warnings = coverage_warnings(audit)
     if not state.reviewed and not budget.hard_exhausted:
-        progress("Reviewer: verifying failures and judged passes...")
+        progress("Reviewer: verifying failures, judged passes and not-applicable verdicts...")
         await _review(audit, state)
     outcome.lead_notes += state.lead_notes
     outcome.review_log = state.review_log
