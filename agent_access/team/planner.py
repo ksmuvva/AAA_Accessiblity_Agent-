@@ -165,7 +165,8 @@ class PlanState:
     # Pages and states the lead was worked on until a run settled nothing more (or it couldn't be loaded): finish no
     # longer waits for them, and what they leave open becomes coverage warnings.
     exhausted: set[str] = field(default_factory=set)
-    explorations: int = 0   # explore calls: a flow in the goal needs at least one before finish (when interaction is on)
+    # Goal flows a successful explore named (its goal contains the flow's text): finish waits for the others.
+    explored_flows: set[str] = field(default_factory=set)
     lead_notes: list[str] = field(default_factory=list)
     review_log: list[dict] = field(default_factory=list)
     reviewed: bool = False
@@ -306,8 +307,9 @@ def _finish_blockers(audit: AuditContext, state: PlanState) -> dict:
     blockers = {}
     if pages := _unaudited(audit, state):
         blockers["pages"] = pages
-    if state.flows and not state.explorations and audit.allow_interaction and getattr(state.team, "explorer", None):
-        blockers["unexplored_flows"] = list(state.flows)
+    unexplored = [f for f in state.flows if f not in state.explored_flows]
+    if unexplored and audit.allow_interaction and getattr(state.team, "explorer", None):
+        blockers["unexplored_flows"] = unexplored
     return blockers
 
 
@@ -318,8 +320,9 @@ def _owed(blockers: dict) -> str:
                      "a stop, and no accepted skip covers them: " + ", ".join(blockers["pages"])
                      + ". Call audit_pages, or skip_pages with a reason for each")
     if blockers.get("unexplored_flows"):
-        parts.append("your goal lists flows that were never explored: " + "; ".join(blockers["unexplored_flows"])
-                     + ". Call explore (goals only grow), then audit_pages the states it labels")
+        parts.append("your goal lists flows no exploration has covered yet: " + "; ".join(blockers["unexplored_flows"])
+                     + ". Call explore for each, with the flow's text in its goal (goals only grow), then audit_pages "
+                       "the states it labels")
     return "Not finished: " + "; ".join(parts) + "."
 
 
@@ -460,7 +463,8 @@ def planner_tools(state: PlanState) -> list:
 
         Args:
             page_key: Where to start.
-            goal: The flow or question, e.g. "search for 'shoes' and open the first result".
+            goal: The flow or question, e.g. "search for 'shoes' and open the first result". To cover a flow in your
+                goal, include that flow's text: finish waits until each goal flow was covered by a successful explore.
         """
         from agent_access.team.orchestrator import _back_to
         audit = ctx.context
@@ -473,13 +477,14 @@ def planner_tools(state: PlanState) -> list:
             return json.dumps({"error": "The working budget is spent."})
         if not await _back_to(audit, page_key):
             return json.dumps({"error": f"{page_key} could not be restored."})
-        state.explorations += 1
         before = set(audit.pages)
         try:
             result = await Runner.run(explorer, f"Start on {page_key}. Goal: {goal}", context=audit, max_turns=EXPLORER_MAX_TURNS,
                                       run_config=run_config(audit, "WCAG audit: explorer"))
             out = result.final_output
             report = out.model_dump(mode="json") if hasattr(out, "model_dump") else {"result": str(out)}
+            # Only an exploration that finished covers a flow; a failed one leaves it owed, so it can be retried.
+            state.explored_flows.update(f for f in state.flows if f.strip().lower() in goal.strip().lower())
         except AGENT_ERRORS as exc:
             state.errors.append(_err("explorer", exc))
             report = {"error": f"The explorer stopped early: {type(exc).__name__}."}

@@ -154,6 +154,63 @@ def test_finish_waits_for_a_flow_in_the_goal_to_be_explored(tmp_path):
     assert not model.scripts["audit planner"] and not model.scripts["explorer"]
 
 
+def test_each_goal_flow_needs_its_own_successful_exploration(tmp_path):
+    report = {"states": [{"label": "settings-open", "how_reached": "clicked Open settings", "what_changed": "a form"}],
+              "flows": [], "links_worth_auditing": [], "blocked": []}
+    scripts = {
+        "audit planner": [call("set_goal", {"pages": 1, "level": "AA", "flows": ["open the settings", "search"],
+                                            "reason": "two flows"}),
+                          call("audit_pages", {"page_keys": [PAGE], "focus": ""}),
+                          call("explore", {"page_key": PAGE, "goal": "open the settings"}),    # fails: covers nothing
+                          call("finish", {"reason": "done"}),
+                          call("explore", {"page_key": PAGE, "goal": "Open the settings panel"}),  # covers one flow
+                          call("audit_pages", {"page_keys": [STATE], "focus": ""}),
+                          call("finish", {"reason": "done"}),
+                          *[PLAN_DONE] * 3],   # it stops with "search" owed, and again on each of the two hand-backs
+        "lead auditor": [FINAL, FINAL, judge("3.3.2"), FINAL, FINAL],
+        "explorer": [{"states": "not a list"},                                  # an invalid report: the run fails
+                     call("click_element", {"selector": "#open"}), call("label_page_state", {"label": "settings-open"}),
+                     report],
+        "reviewer": [confirm_all] * 2,
+        "summary writer": [SUMMARY],
+    }
+    model, audit, outcome = run(scripts, tmp_path, interaction=True)
+    assert '"error": "The explorer stopped early' in tool_outputs(model, "audit planner", 3)[-1]
+    both = tool_outputs(model, "audit planner", 4)[-1]
+    assert '"unexplored_flows": ["open the settings", "search"]' in both   # the failed exploration covered nothing
+    one = tool_outputs(model, "audit planner", 7)[-1]
+    assert '"unexplored_flows": ["search"]' in one and '"ok": false' in one
+    assert [e["action"] for e in outcome.plan_log].count("planner_resumed") == 2
+    assert not model.scripts["audit planner"] and not model.scripts["explorer"]
+
+
+def test_the_fingerprint_tells_apart_states_that_differ_only_in_attributes_links_or_values():
+    menu = """<!doctype html><html lang="en"><head><title>Shop</title></head><body><main><h1>Shop</h1>
+<button id="menu" aria-expanded="false" aria-controls="items">Menu</button>
+<ul id="items" hidden><li><a href="#a">Shoes</a></li><li><a href="#b">Bags</a></li></ul>
+<label for="q">Search</label><input id="q"></main><script>
+document.getElementById('menu').addEventListener('click', (ev) => {
+  document.getElementById('items').hidden = false; ev.currentTarget.setAttribute('aria-expanded', 'true');
+});
+</script></body></html>"""
+
+    async def scenario():
+        from agent_access.agent_tools.browser_tools import fill, page_fingerprint
+        async with AuditContext(screen_reader="emulated", tracing=False) as audit:
+            await load_html_content(audit, menu, "file:shop.html")
+            closed = await page_fingerprint(audit)
+            await click(audit, "#menu")
+            opened = await page_fingerprint(audit)
+            await fill(audit, "#q", "shoes")
+            filled = await page_fingerprint(audit)
+            return closed, opened, filled
+
+    closed, opened, filled = asyncio.run(scenario())
+    assert closed["headings"] == opened["headings"] and closed["controls"] == opened["controls"]   # what it missed
+    assert closed != opened and opened["links"] == closed["links"] + 2 and opened["states"] == ["BUTTON:Menu"]
+    assert opened != filled and filled["values"] == ["shoes"]
+
+
 def test_a_state_is_rebuilt_only_when_its_steps_still_reach_it():
     async def scenario():
         async with AuditContext(screen_reader="emulated", tracing=False) as audit:
