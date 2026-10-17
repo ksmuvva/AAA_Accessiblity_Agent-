@@ -141,7 +141,7 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 
 ### Rules that aren't obvious from one file
 
-- **Reviewer:** measured failures (`axe`/`custom`) stay fails unless `rejected` (`uncertain` keeps them). Agent fails and agent passes stay only if `confirmed`; otherwise they become `needs_review`, never `fail`, with `original_status` kept. A failed batch is `not_reviewed`; the others still run. Process-state results are kept and marked `not_reviewed`.
+- **Reviewer:** an agent pass on a judgement criterion is reviewed **blind** (`reviewer.is_blind`): its brief carries the criterion's question, selectors and automated check, never the auditor's description or evidence, so the reviewer judges instead of agreeing. Its model defaults to the SDK's default when `--model` names another one (`orchestrator.default_reviewer_model`). Measured failures (`axe`/`custom`) stay fails unless `rejected` (`uncertain` keeps them). Agent fails and agent passes stay only if `confirmed`; otherwise they become `needs_review`, never `fail`, with `original_status` kept. A failed batch is `not_reviewed`; the others still run. Process-state results are kept and marked `not_reviewed`.
 - **Status precedence** (`report_tools._criterion_status`): fail > reviewer-demoted fail (needs_review) > agent pass > needs_review > not_applicable > automated-pass-only (needs_review) > not_tested. Doubt about a failure never becomes a pass. Across pages, the worst status wins.
 - **Agent judgements** (`add_manual_finding`): a new judgement replaces the same criterion's earlier agent findings that have a different status; same-status findings accumulate. Agent `fail`s are never overwritten; only the reviewer overturns them.
 - **Cross-page rules** (3.2.3/3.2.4/3.2.6) record `needs_review` with a reason on a single page or with nothing to compare; 3.2.4 compares only destinations linked from every audited page.
@@ -244,7 +244,7 @@ code can't tell you (gotchas, non-obvious contracts, how to run and test it); ev
 - Interaction is ON in the CLI (`--no-interaction`), OFF by default on `AuditContext`.
 - `evaluate_js` is also the open instrument of the lead, the specialists and the reviewer. Every run is logged in
   `audit.scripts` with an id (`S1`...); a judgement cites it as "script S1" in its evidence; the reviewer's brief
-  carries the cited scripts (`reviewer._brief`, `verify_tools.cited_scripts`) and it re-runs them; the report lists
+  carries the cited scripts (not on a blind item) (`reviewer._brief`, `verify_tools.cited_scripts`) and it re-runs them; the report lists
   every script. A script result is agent evidence, never a measurement: the finding stays `source="agent"`.
 - Test: `python -m pytest -n 0 tests/test_agentic_guardrails.py tests/test_agentic_scripts.py`.
 <!-- G5 end -->

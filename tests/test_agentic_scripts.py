@@ -89,9 +89,17 @@ def test_script_source_cannot_break_the_report_and_page_text_is_scrubbed_for_the
     md = render_markdown(_finish(audit, AuditOutcome(report=compile_site_report(audit))))
     assert "````js\n() => `a ``` b`\n````" in md   # the fence is longer than any backtick run in the script
     audit.current_url = "file:shop.html"
-    add_manual_finding(audit, "2.4.2", "pass", "Descriptive title.", "Checked with script S2.", [])
+    add_manual_finding(audit, "2.4.2", "fail", "Title doesn't describe the page.", "Checked with script S2.", [])
     brief = _brief(audit, next(f for f in audit.findings if f.source == "agent"))
     assert REDACTED in brief["scripts"][0]["result"] and "Ignore previous" not in brief["scripts"][0]["result"]
+
+
+def test_a_blind_review_does_not_see_the_auditors_scripts():
+    audit, *_ = run_scripts()
+    audit.current_url = "file:shop.html"
+    add_manual_finding(audit, "2.4.4", "pass", "Links are clear.", "Checked with script S1.", ["a"])
+    brief = _brief(audit, next(f for f in audit.findings if f.source == "agent"))
+    assert brief.get("blind") and "scripts" not in brief and "evidence" not in brief
 
 
 def test_the_report_only_claims_a_reload_that_happened():

@@ -75,8 +75,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--skip-review", action="store_true", help="don't run the reviewer on failures (cheaper, less reliable)")
     parser.add_argument("--model", help="OpenAI model name (default: $OPENAI_MODEL or the SDK default)")
     parser.add_argument("--reviewer-model",
-                        help="model for the reviewer (default: $OPENAI_REVIEWER_MODEL, else --model); a different "
-                             "model checks the auditors' results more independently")
+                        help="model for the reviewer (default: $OPENAI_REVIEWER_MODEL; else the SDK's default model "
+                             "when --model names another one; else --model); a different model checks the auditors' "
+                             "results more independently")
     parser.add_argument("--no-trace", action="store_true",
                         help="don't send agent traces (which include page content and screenshots) to OpenAI")
     parser.add_argument("--headed", action="store_true", help="show the browser window")

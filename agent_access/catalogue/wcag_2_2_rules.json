@@ -492,7 +492,7 @@
                 }
               ],
               "manual_checks": [
-                "Judge from the screenshot whether colour is the only way information is conveyed (links, errors, required fields, charts)."
+                "Judge from the screenshot whether colour is the only way information is conveyed (links, errors, required fields, charts). Text that only points to the colour (\"fields in red are required\") still conveys the information by colour alone: it needs another cue, such as an asterisk or the word required."
               ]
             },
             {
@@ -1280,7 +1280,7 @@
                 }
               ],
               "manual_checks": [
-                "Judge whether each link's purpose is clear from its text plus its context (sentence, list item, heading)."
+                "Judge whether each link's purpose is clear from its text alone or from its text plus its programmatically determined context: the same sentence, paragraph, list item or table cell as the link, a table header cell for it, or the heading it sits under. Text in a different paragraph does not count, and identical link texts that go to different places fail unless that context tells them apart."
               ]
             },
             {
@@ -2078,7 +2078,7 @@
                 }
               ],
               "manual_checks": [
-                "The check says when a form tried to submit with no client-side message (server validation wasn't tested), or did nothing visible and has no required fields. Call list_forms and use inspect_element on the fields: required markers, aria-required, pattern, or type=email mean errors should be reported. For a form that validates only on the server, record needs_review with that reason. Record fail only when an input error was detected on the page (submission refused) and no text identified it; pass when errors were identified in text."
+                "The check says when a form tried to submit with no client-side message (server validation wasn't tested), or did nothing visible and has no required fields. Call list_forms and use inspect_element on the fields: required markers, aria-required, pattern, or type=email mean errors should be reported. For a form that validates only on the server, record needs_review with that reason. Record fail only when an input error was detected on the page (submission refused) and no text identified it. Identifying an error means the field in error is identified (named in the message, or the message is shown with that field and tied to it, e.g. by aria-describedby or aria-errormessage) and the error is described in text. A generic message such as \"Error.\" that sits apart from the fields fails: it says neither which field nor what is wrong."
               ]
             },
             {

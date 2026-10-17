@@ -56,7 +56,14 @@ For each item:
    auditor confirmed it covered the page. Confirm such a pass when the check's results show no failure and you
    find nothing on the page the check could have missed; reject it if you find a defect; answer "uncertain" only
    when you found content the check did not cover and you can't judge it yourself.
-4. An item may carry scripts: read-only scripts the auditor wrote and ran (evaluate_js) and cited as evidence, with
+4. A "pass" item marked blind is a criterion that needs judgement. You are not shown the auditor's reasoning, so that
+   you judge the criterion yourself instead of agreeing with it. Read its question, inspect the page (start from its
+   selectors, then look for anything else the criterion covers) and decide it as if you were auditing the page:
+   - "confirmed" only if your own inspection finds the criterion met: say what you saw that meets it (the element
+     and its text or attributes). A general impression that the page seems fine is not enough.
+   - "rejected" if you find a failure for the criterion: say what.
+   - "uncertain" if you can't decide.
+5. An item may carry scripts: read-only scripts the auditor wrote and ran (evaluate_js) and cited as evidence, with
    the result it got. A script is the auditor's evidence, not a measurement: re-run it with evaluate_js, check that
    its result still holds and that the script measures what the judgement claims, then decide as above.
 
@@ -102,11 +109,21 @@ def _scrubbed(text: str | None) -> str | None:
     return scrub(text)[0] if text else text
 
 
+def is_blind(f: Finding) -> bool:
+    """An agent's pass on a criterion that needs judgement: the reviewer decides it without the auditor's reasoning,
+    because a reviewer shown that reasoning tends to agree with it (it confirmed 30 of 31 false passes in the evals)."""
+    return f.source == "agent" and f.status is Status.PASS and REGISTRY[f.wcag_criterion].judgement
+
+
 def _brief(audit: AuditContext, f: Finding) -> dict:
-    brief = {"finding_id": f.id, "status": f.status.value,
-             "criterion": f"{f.wcag_criterion} {audit.catalogue.get(f.wcag_criterion).title}",
-             "source": f.source, "check": f.check_id, "description": f.description, "selectors": f.selectors[:5],
-             "evidence": f.evidence}
+    rule = audit.catalogue.get(f.wcag_criterion)
+    brief = {"finding_id": f.id, "status": f.status.value, "criterion": f"{f.wcag_criterion} {rule.title}",
+             "source": f.source, "check": f.check_id, "selectors": f.selectors[:5]}
+    if is_blind(f):
+        brief["blind"] = True
+        brief["question"] = list(rule.manual_checks)
+    else:
+        brief["description"], brief["evidence"] = f.description, f.evidence
     if f.source == "agent":
         # The automated evidence the auditor's judgement rests on, so a confirmation of a measured check can be judged.
         tool = REGISTRY[f.wcag_criterion]
@@ -117,7 +134,7 @@ def _brief(audit: AuditContext, f: Finding) -> dict:
             "results": [f"{x.status.value}: {x.description}" for x in automated[:6]],
             "details": details if len(details) <= MAX_DETAILS_CHARS else details[:MAX_DETAILS_CHARS] + "...",
         }
-        scripts = cited_scripts(audit, f.description, f.evidence)
+        scripts = [] if is_blind(f) else cited_scripts(audit, f.description, f.evidence)  # blind: no auditor evidence
         if scripts:
             # A script's result can carry page text; the brief is model input, so it gets the same scrub as tool output.
             brief["scripts"] = [{"id": x["id"], "function": x["function"], "result": _scrubbed(x["result"]),

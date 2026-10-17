@@ -198,6 +198,18 @@ def coverage_warnings(audit: AuditContext, skipped: dict[str, str] | None = None
     return warnings
 
 
+def default_reviewer_model(model: str | Model | None) -> str | Model | None:
+    """The reviewer's model when none is configured. If the auditors use a named model other than the SDK's default,
+    the reviewer gets the SDK's default, so its check comes from a different model (and, for the cheap models, a
+    stronger one). Otherwise it shares the auditors' model, and the report says the check isn't independent."""
+    try:
+        from agents.models import get_default_model
+    except ImportError:  # an SDK without it: keep the old fallback
+        return model
+    default = get_default_model()
+    return default if isinstance(model, str) and model != default else model
+
+
 async def run_audit(
     audit: AuditContext,
     *,
@@ -220,9 +232,10 @@ async def run_audit(
     # Each model comes from the argument, then the environment. The reviewer falls back to the auditors' model,
     # and that to the SDK default (None).
     model = model or os.environ.get("OPENAI_MODEL") or None
-    reviewer_model = reviewer_model or os.environ.get("OPENAI_REVIEWER_MODEL") or model
+    reviewer_model = reviewer_model or os.environ.get("OPENAI_REVIEWER_MODEL") or default_reviewer_model(model)
     outcome = AuditOutcome(report=None)
-    same = " (same model; set --reviewer-model for a more independent check)" if reviewer_model is model else ""
+    same = (" (same model; set --reviewer-model for a more independent check)"
+            if _model_name(reviewer_model) == _model_name(model) else "")
     audit.engines["Agent models"] = (f"lead, specialists, summary: {_model_name(model)}; "
                                      f"reviewer: {_model_name(reviewer_model)}{same}")
 
