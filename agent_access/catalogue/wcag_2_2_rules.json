@@ -2078,7 +2078,7 @@
                 }
               ],
               "manual_checks": [
-                "The check says when a form tried to submit with no client-side message (server validation wasn't tested), or did nothing visible and has no required fields. Call list_forms and use inspect_element on the fields: required markers, aria-required, pattern, or type=email mean errors should be reported. For a form that validates only on the server, record needs_review with that reason. Record fail only when an input error was detected on the page (submission refused) and no text identified it. Identifying an error means the text names the field in error and describes the error: a generic message such as \"Error.\" or \"Invalid input\" fails. Pass only when each error's text says which field and what is wrong."
+                "The check says when a form tried to submit with no client-side message (server validation wasn't tested), or did nothing visible and has no required fields. Call list_forms and use inspect_element on the fields: required markers, aria-required, pattern, or type=email mean errors should be reported. For a form that validates only on the server, record needs_review with that reason. Record fail only when an input error was detected on the page (submission refused) and no text identified it. Identifying an error means the field in error is identified (named in the message, or the message is shown with that field and tied to it, e.g. by aria-describedby or aria-errormessage) and the error is described in text. A generic message such as \"Error.\" that sits apart from the fields fails: it says neither which field nor what is wrong."
               ]
             },
             {
