@@ -7,6 +7,11 @@ each expected criterion. This makes OpenAI calls and costs money; the unit tests
     python -m evals.run_eval --model gpt-5 --reviewer-model o4-mini --cases judgement_bad
     python -m evals.run_eval --fail-on-false-pass  # exit 1 if any defect was reported as a pass (for CI)
     python -m evals.run_eval --use-lessons         # let the team read past lessons (measures what learning adds)
+    python -m evals.run_eval --mode agent --measurement lazy   # the CLI's defaults: the planner owns the run
+
+Comparing two versions (e.g. main and a branch): run the same cases with the same flags on each checkout, then
+    python -m evals.compare evals/results/eval-A.json evals/results/eval-B.json
+Each results file records the git commit, mode, measurement and the model calls each case used.
 
 Learning: every false pass and false fail becomes a global lesson in the memory store (--memory, default
 reports/memory.sqlite, the store audits read), with what the team said and, if the case has "notes":
@@ -65,6 +70,17 @@ def metrics(totals: Counter) -> dict:
     }
 
 
+def git_commit() -> str | None:
+    """The checked-out commit, so two results files can be told apart."""
+    import subprocess
+
+    try:
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=HERE, capture_output=True, text=True,
+                              timeout=10).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def open_memory(args: argparse.Namespace):
     from agent_access.memory import Memory
 
@@ -81,16 +97,16 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None) -> dict:
 
     html = (HERE / case["file"]).read_text(encoding="utf-8")
     async with AuditContext(screen_reader="emulated", target_level=case.get("level", "AA"),
-                            tracing=not args.no_trace) as audit:
+                            tracing=not args.no_trace, measurement=args.measurement) as audit:
         if memory is not None and args.use_lessons:
             audit.memory = memory
         await load_html_content(audit, html, f"file:{Path(case['file']).name}")
-        outcome = await run_audit(audit, model=args.model, reviewer_model=args.reviewer_model,
+        outcome = await run_audit(audit, model=args.model, reviewer_model=args.reviewer_model, mode=args.mode,
                                   review=not args.skip_review, progress=lambda m: print(f"  {m}", file=sys.stderr))
     criteria = (outcome.report.criteria + outcome.report.beyond_target) if outcome.report else []
     actual = {c.wcag_criterion: c.status.value for c in criteria}
     result = {"name": case["name"], **score(case["expected"], actual), "errors": outcome.errors,
-              "warnings": outcome.warnings}
+              "warnings": outcome.warnings, "model_calls": (outcome.budget_used or {}).get("model_calls")}
     result["lessons_written"] = lessons_from_eval(memory, result, outcome.report, case) if memory is not None else 0
     return result
 
@@ -121,7 +137,8 @@ async def main_async(args: argparse.Namespace) -> int:
     out_dir = HERE / "results"
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"eval-{datetime.now():%Y%m%d-%H%M%S}.json"
-    out.write_text(json.dumps({"model": args.model or os.environ.get("OPENAI_MODEL"), "reviewer_model": args.reviewer_model,
+    out.write_text(json.dumps({"git_commit": git_commit(), "mode": args.mode, "measurement": args.measurement,
+                               "model": args.model or os.environ.get("OPENAI_MODEL"), "reviewer_model": args.reviewer_model,
                                "metrics": summary, "totals": dict(totals), "cases": results,
                                "memory": args.memory, "used_lessons": args.use_lessons, "lessons_written": lessons},
                               indent=2), encoding="utf-8")
@@ -143,6 +160,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="memory store that false passes/fails are written to as lessons, or 'off'")
     parser.add_argument("--use-lessons", action="store_true",
                         help="let the team read past lessons while it audits (default: score without them)")
+    parser.add_argument("--mode", choices=["code", "agent"], default="code",
+                        help="code (default): the fixed per-page flow; agent: the planner owns the run (the CLI default)")
+    parser.add_argument("--measurement", choices=["eager", "lazy"], default="eager",
+                        help="eager (default): every check runs on load; lazy: the agents choose (the CLI default)")
     args = parser.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")

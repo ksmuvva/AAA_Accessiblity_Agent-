@@ -89,7 +89,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - `tests/test_agent.py` drives the whole team with `RouterModel`, a scripted fake model keyed on each agent's `"You are the <role>"` instructions prefix; `test_every_criterion_ends_with_an_agent_judgement` is the end-to-end coverage contract. `test_planning.py` covers the open-items contract, `test_safeguards.py` the reviewer rules, interaction guard, context trimming and per-page orchestration, `test_criterion_tools.py` the generic criterion tools and catalogue sync.
   - `tests/test_tune_{perceivable,operable,understandable}.py` with fixtures `tests/fixtures/{p,o,u}_*.html` give each rule a page it fails on; `test_benchmark_regressions.py` covers the W3C BAD demo patterns.
 - After changing a rule's `@wcag_tool` name, `tech`, `uses` or `judgement`, run `python -m agent_access.catalogue.sync`. A test checks it with `--check`.
-- Evals use a real model and cost money: `python -m evals.run_eval [--model M] [--cases NAME ...] [--fail-on-false-pass]`. They compare against `evals/cases.json` and report recall, precision, the share of criteria decided, and false passes.
+- Evals use a real model and cost money: `python -m evals.run_eval [--model M] [--cases NAME ...] [--mode code|agent] [--measurement eager|lazy] [--fail-on-false-pass]` (defaults code + eager; the CLI's are agent + lazy). They compare against `evals/cases.json` and report recall, precision, the share of criteria decided, and false passes; each results file records the git commit, settings and model calls. `python -m evals.compare A.json B.json` diffs two runs (e.g. main against a branch, same flags).
 
 ## Architecture
 
