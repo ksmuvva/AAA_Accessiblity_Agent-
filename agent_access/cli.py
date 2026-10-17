@@ -67,9 +67,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "(default: reports/memory.sqlite; 'off' disables memory)")
     parser.add_argument("--delegation", choices=["handoffs", "tools"], default="handoffs",
                         help="how the lead reaches specialists in agent mode: SDK handoffs (default) or tool calls")
-    parser.add_argument("--measurement", choices=["eager", "lazy"], default="eager",
-                        help="eager (default): every automated check runs when a page loads; lazy: the agents choose "
-                             "which checks run, and code runs the rest before a page is declared done")
+    parser.add_argument("--measurement", choices=["eager", "lazy"], default="lazy",
+                        help="lazy (default): the agents choose which checks run, and code runs the remaining checks at "
+                             "the target level before a page is declared done (criteria above the target run only if an "
+                             "agent asks); eager: every automated check runs when a page loads")
     parser.add_argument("--skip-review", action="store_true", help="don't run the reviewer on failures (cheaper, less reliable)")
     parser.add_argument("--model", help="OpenAI model name (default: $OPENAI_MODEL or the SDK default)")
     parser.add_argument("--reviewer-model",

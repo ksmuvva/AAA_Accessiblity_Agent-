@@ -34,7 +34,9 @@ Every audit has two layers: measurement in code, then judgement by agents.
 **1. Measurement (deterministic).** For each page, *probes* collect raw data from the browser: the axe-core
 results, the accessibility tree, colour contrast (the Colour Contrast Analyser method), keyboard focus order, forms,
 hover and disclosure behaviour, media, and screen-reader output. Then **86 rules**, one per WCAG criterion, turn
-that data into a result for each criterion: `fail`, `pass`, `needs_review` or `not_applicable`.
+that data into a result for each criterion: `fail`, `pass`, `needs_review` or `not_applicable`. By default
+(`--measurement lazy`) the agents choose which checks to run and when; before a page counts as done, code runs every
+check at the target level that no agent asked for. Checks above the target run only if an agent asks for them.
 
 **2. Judgement (agents).** No criterion is closed by automation alone. A criterion stays open until it fails or an
 agent has recorded a judgement for it.
@@ -178,13 +180,14 @@ python main.py https://shop.example.com --process "add an item to the basket and
 
 | Option | What it does |
 |---|---|
-| `--level A\|AA\|AAA` | Conformance target (default `AA`). All 86 criteria are tested either way; those above the target are reported separately. |
+| `--level A\|AA\|AAA` | Conformance target (default `AA`). Criteria above the target are reported separately; in lazy measurement they are tested only when an agent asks. |
 | `--pages N` / `--max-pages N` | Minimum pages to audit (default 1) and the most the planner may open (default 10). |
 | `--budget-calls N` | Model calls the whole run may spend (default 400; 60 are kept back for the reviewer and summary). |
 | `--budget-minutes N` | Wall-clock minutes after which no new agent work starts (default 60). |
 | `--screen-reader auto\|nvda\|emulated` | `auto` uses real NVDA when installed, which **opens a visible browser and speaks aloud**. `emulated` reads the accessibility tree and runs headless. |
 | `--no-interaction` | Stop the agents from clicking, typing and following links. |
 | `--allow-submit URL_PREFIX` | Let data-changing requests (POST etc.) through to URLs starting with this prefix. Repeatable. |
+| `--measurement lazy\|eager` | `lazy` (default): the agents choose which checks run, and code runs the rest of the target level before a page is done. `eager`: all 86 checks run when a page loads. |
 | `--mode agent\|code` | `agent` (default): the planner runs the audit. `code`: a fixed per-page flow. |
 | `--model`, `--reviewer-model` | Override the models from `.env`. |
 | `--memory PATH\|off` | SQLite memory of past runs on a site (default `reports/memory.sqlite`). |

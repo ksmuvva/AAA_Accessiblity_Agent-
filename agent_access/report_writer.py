@@ -167,9 +167,12 @@ def render_markdown(outcome: AuditOutcome) -> str:
 
     if report.beyond_target:
         b = report.beyond_target_counts
+        unmeasured = b.get(Status.NOT_TESTED.value, 0)
+        tested = len(report.beyond_target) - unmeasured
         lines += [f"## Beyond the Level {report.target_level} target", "",
-                  f"{len(report.beyond_target)} higher-level criteria were also tested. They don't affect "
-                  f"Level {report.target_level} conformance.", "",
+                  f"{tested} higher-level criteria were also tested"
+                  + (f"; {unmeasured} were not measured, because no agent chose to run their checks" if unmeasured else "")
+                  + f". They don't affect Level {report.target_level} conformance.", "",
                   "| Status | Criteria |", "|---|---|"] + [f"| {STATUS_LABEL[s]} | {b.get(s.value, 0)} |" for s in TABLE_ORDER] + [""]
         lines += _criteria_sections(report.beyond_target, multi, heading_prefix="Beyond target: ")
 

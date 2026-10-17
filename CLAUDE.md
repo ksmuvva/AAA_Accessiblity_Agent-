@@ -6,7 +6,7 @@ Agent_Access is a multi-agent WCAG 2.2 auditor on the **OpenAI Agents SDK** (`op
 - One rule per WCAG 2.2 criterion: **86 rules** (A/AA/AAA), each with a fixed name, e.g. `check_non_text_content` (1.1.1).
 - Technologies: axe-core, Playwright (Chromium), the Colour Contrast Analyser method, and NVDA (real via Guidepup, or emulated from the accessibility tree).
 - Flow: every page is swept in code (all probes, then all 86 rules). A lead agent plus forms/media/navigation specialists then judge **every** criterion (see the coverage contract). A reviewer re-checks every FAIL and every agent PASS, and a summary writer finishes.
-- `--level A|AA|AAA` (default AA) sets the target. Criteria above it are still tested and reported as `beyond_target`.
+- `--level A|AA|AAA` (default AA) sets the target. Criteria above it are reported as `beyond_target`: always tested in eager measurement, only when an agent asks in lazy (the CLI default).
 
 ## Working guidelines
 
@@ -247,11 +247,12 @@ code can't tell you (gotchas, non-obvious contracts, how to run and test it); ev
 
 <!-- G6 start -->
 ### G6 Agentic measurement, tests, evals, integration
-`agent_tools/check_tools.py`. `audit.measurement` is `eager` (default, both modes: today's sweep on load) or `lazy`
-(`measure_on_load` pre-collects only `CHEAP_PROBES`, runs no rule; agents measure with `run_checks(criteria)`,
-`run_all_checks()`). **Floor:** `run_sweep_remaining(audit, page_key)` runs every rule not yet run on the page; the
-planner/orchestrator calls it before a page is done, so lazy changes who chooses the order, never whether everything
-is measured. It reloads the page first unless the browser is provably on it; a labelled state can't be reloaded, so
+`agent_tools/check_tools.py`. `audit.measurement` is `eager` (AuditContext's default, and what the tests and evals
+get: the sweep on load) or `lazy` (**the CLI default**; `measure_on_load` pre-collects only `CHEAP_PROBES`, runs no
+rule; agents measure with `run_checks(criteria)`, `run_all_checks()`). **Floor:** `run_sweep_remaining(audit,
+page_key)` runs every *target-level* rule (`target_tools`) not yet run on the page; the planner/orchestrator calls it
+before a page is done, so lazy never leaves the target unmeasured. Above-target rules run only if an agent asks; the
+rest stay `not_tested` and the report says they were not measured. It reloads the page first unless the browser is provably on it; a labelled state can't be reloaded, so
 its unrun checks stay "never measured". `open_items` adds `unmeasured` and `measurement`; an unrun check shows as `run_checks`. Rules only ever
 see default-state probe data (G5's `run_probe` with options is never cached). Test:
 `python -m pytest -n 0 tests/test_agentic_measurement.py`.

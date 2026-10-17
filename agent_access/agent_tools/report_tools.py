@@ -94,7 +94,9 @@ def report_notes(audit: AuditContext) -> list[str]:
         "Criteria with status not_tested were not evaluated and must not be treated as passing.",
         "Automated checks alone cannot prove conformance; criteria that only passed automated checks are marked needs_review.",
         f"The conformance target is WCAG 2.2 Level {audit.target_level} ({len(audit.target_rules())} criteria)."
-        + (f" The {beyond} criteria above the target were also tested and are reported separately." if beyond else ""),
+        + (f" The {beyond} criteria above the target are reported separately"
+           + ("; in lazy measurement only the ones an agent chose to check were tested." if audit.measurement == "lazy"
+              else " and were also tested.") if beyond else ""),
         "Full conformance also requires evaluating complete pages and complete processes.",
     ]
 
