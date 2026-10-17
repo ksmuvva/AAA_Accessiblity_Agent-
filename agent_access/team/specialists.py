@@ -21,6 +21,7 @@ from agent_access.team.runtime import run_config
 from agent_access.catalogue.catalogue import LEVEL_ORDER
 from agent_access.agent_tools import INSPECTION_TOOLS
 from agent_access.agent_tools.report_tools import record_finding, record_findings
+from agent_access.agent_tools.verify_tools import evaluate_js
 from agent_access.context import AuditContext, no_page, run_agents
 from agent_access.engine import criterion_tools_for, list_forms, test_disclosures, test_forms, test_hover_content
 from agent_access.models import SpecialistReport
@@ -40,7 +41,9 @@ get_open_items lists the criteria in your area that still need your judgement, a
 check has run on this page state (measured). get_criterion(criterion) shows one criterion: its status, the check's
 findings, evidence and details, judgements so far, and what you must judge (your_judgement_needed).
 run_checks(criteria) runs checks on this page state; run it for criteria that are not measured before you judge
-them. get_recorded_findings lists everything recorded.
+them. evaluate_js(function) runs your own read-only script when no check measures what you need; cite the script
+id it returns in your evidence ("script S2"), because the reviewer re-runs cited scripts. get_recorded_findings lists
+everything recorded.
 
 ## Plan, judge, repeat
 Every criterion in your area needs your judgement, not only the ones automation couldn't decide.
@@ -138,7 +141,7 @@ def build_specialist(domain: str, model: str | Model | None = None, *, hands_bac
     return apply_guardrails(Agent[AuditContext](  # guarded in every mode; build_team re-applies after its own tools
         name=name,
         instructions=_handoff_instructions(domain) if hands_back else instructions,
-        tools=[open_items_tool(domain), *criterion_tools_for(domain), *retests, *INSPECTION_TOOLS,
+        tools=[open_items_tool(domain), *criterion_tools_for(domain), *retests, *INSPECTION_TOOLS, evaluate_js,
                record_finding, record_findings],
         model=model,
         model_settings=ModelSettings(parallel_tool_calls=False),

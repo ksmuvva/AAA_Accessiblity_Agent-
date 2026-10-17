@@ -125,7 +125,7 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 ### How agents reach criteria
 
 - Agents don't get 86 tools. `get_criterion(criterion)` returns `engine.criterion_view` (status, findings with evidence, rule details, understanding URL, `your_judgement_needed`, `measured_only`, a `note` when the check hasn't run on this page state, the dirty-page `warning`); it measures nothing. `rerun_check(criterion)` calls `run_rule`.
-- The `criterion` parameter is a JSON-schema enum scoped by the rule's `domain` (`lead`, `forms`, `media`, `navigation`). The lead's enum holds all 86, because it judges what specialists leave open. The lead has 17 tools, specialists 10-12.
+- The `criterion` parameter is a JSON-schema enum scoped by the rule's `domain` (`lead`, `forms`, `media`, `navigation`). The lead's enum holds all 86, because it judges what specialists leave open. The lead has 19 tools, specialists 11-13 (tests cap them).
 - **Coverage contract (`planning.is_open`):** a criterion stays open on a page until it fails or an agent has recorded a judgement for it, whatever the automated check said (needs review, passed, or not applicable). `get_open_items` reports **state, not a route**: each open criterion's `status`, `measured` (its check ran on this page state) and `automated` (the check's results by status), plus, for the lead, `specialists` (per specialist: its open criteria and whether it was tried on the page). It never names a next step; the agent plans the order and method, and code still decides `done`. An agent's own `needs_review` moves it to `exhausted_for_human`. Specialists get the same view scoped to their domain (`open_items_tool(domain)`); what they leave stays open for the lead. `record_findings` records several judgements in one turn.
 
 ### How a run flows (`team/orchestrator.py`)
@@ -242,7 +242,11 @@ code can't tell you (gotchas, non-obvious contracts, how to run and test it); ev
   so agents may click Submit/Checkout; only irreversible intent is refused.
 - Import `agent_access.agent_tools.verify_tools` directly, never via `agent_tools/__init__` (circular via engine).
 - Interaction is ON in the CLI (`--no-interaction`), OFF by default on `AuditContext`.
-- Test: `python -m pytest -n 0 tests/test_agentic_guardrails.py`.
+- `evaluate_js` is also the open instrument of the lead, the specialists and the reviewer. Every run is logged in
+  `audit.scripts` with an id (`S1`...); a judgement cites it as "script S1" in its evidence; the reviewer's brief
+  carries the cited scripts (`reviewer._brief`, `verify_tools.cited_scripts`) and it re-runs them; the report lists
+  every script. A script result is agent evidence, never a measurement: the finding stays `source="agent"`.
+- Test: `python -m pytest -n 0 tests/test_agentic_guardrails.py tests/test_agentic_scripts.py`.
 <!-- G5 end -->
 
 <!-- G6 start -->

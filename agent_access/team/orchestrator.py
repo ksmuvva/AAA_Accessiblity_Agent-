@@ -67,6 +67,8 @@ class AuditOutcome:
     budget_used: dict | None = None
     tripwires: list[dict] = field(default_factory=list)
     memory: dict | None = None
+    # Agent-written scripts (evaluate_js), so a reader can see and re-run the evidence a judgement cites.
+    scripts: list[dict] = field(default_factory=list)
 
 
 def _err(stage: str, exc: Exception) -> str:
@@ -314,7 +316,8 @@ def remember_run_safely(audit: AuditContext, outcome: AuditOutcome) -> dict | No
 
 
 def _finish(audit: AuditContext, outcome: AuditOutcome) -> AuditOutcome:
-    """What every outcome carries whatever the mode: the guard tripwires (G5) and the plan log."""
+    """What every outcome carries whatever the mode: the guard tripwires (G5), the plan log and the agents' scripts."""
+    outcome.scripts = list(audit.scripts)
     try:
         from agent_access.tripwires import tripwire_report
         outcome.tripwires = tripwire_report(audit).get("items", list(audit.tripwires))

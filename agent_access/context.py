@@ -118,6 +118,9 @@ class AuditContext:
     # Pages that have had the full automated sweep, and a log of every rule run (agent_access/engine.py).
     swept: set[str] = field(default_factory=set)
     tool_runs: list[dict] = field(default_factory=list)
+    # Every agent-written script run with evaluate_js (id "S1", "S2", ...), so a judgement can cite its evidence and
+    # the reviewer can re-run it.
+    scripts: list[dict] = field(default_factory=list)
     # Probe results cached per page (agent_access/probes), so the 86 rules share one run of each probe.
     observations: dict[str, dict] = field(default_factory=dict)
     # Each rule's latest details per page ({page: {rule name: details}}), served by get_criterion.

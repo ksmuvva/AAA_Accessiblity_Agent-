@@ -30,11 +30,11 @@ def test_each_agent_gets_generic_tools_scoped_to_its_criteria():
         assert "rerun_check" not in names and "run_all_checks" not in names  # one measuring tool; the sweep is the lead's
         assert not [n for n in names if n.startswith("check_")]
         assert _enum(agent) == [t.criterion for t in TOOLS_IN_ORDER if t.domain == domain]
-        assert len(names) <= 12
+        assert len(names) <= 13  # 12 plus evaluate_js, the agent's own read-only script
     lead = build_audit_agent("m")
     assert len(_enum(lead)) == 86  # the lead judges whatever specialists leave open
     assert {"run_checks", "run_all_checks"} <= {t.name for t in lead.tools}
-    assert len(lead.tools) <= 18
+    assert len(lead.tools) <= 19  # 18 plus evaluate_js
 
 
 def test_catalogue_is_in_sync_with_the_rules():

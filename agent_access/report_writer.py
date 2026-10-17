@@ -69,6 +69,17 @@ def _tests_run(runs: list[dict], multi: bool) -> list[str]:
     return lines + [""]
 
 
+def _scripts(scripts: list[dict]) -> list[str]:
+    """The read-only scripts the agents wrote and ran, so a reader can re-run the evidence a judgement cites."""
+    lines = ["## Agent scripts", "",
+             "Read-only scripts the agents ran in the page. A judgement that relies on one cites its id in its evidence.", ""]
+    for s in scripts:
+        got = f"error: {s['error']}" if s["error"] else f"result: {s['result']}"
+        lines += [f"### {s['id']} on {s['page_url']}", "", "```js", s["function"], "```", "",
+                  _md_escape(got) + (" (the script changed the page; it was reloaded)" if s["page_changed"] else ""), ""]
+    return lines
+
+
 def _criteria_sections(criteria: list[CriterionResult], multi: bool, heading_prefix: str = "") -> list[str]:
     lines: list[str] = []
     for status, heading in ((Status.FAIL, "Failures"), (Status.NEEDS_REVIEW, "Needs review")):
@@ -178,6 +189,8 @@ def render_markdown(outcome: AuditOutcome) -> str:
 
     if outcome.tool_runs:
         lines += _tests_run(outcome.tool_runs, multi)
+    if getattr(outcome, "scripts", None):
+        lines += _scripts(outcome.scripts)
 
     lines += ["## Notes", ""] + [f"- {n}" for n in report.notes] + [""]
     return "\n".join(lines)
@@ -193,6 +206,7 @@ def write_reports(out_dir: Path, outcome: AuditOutcome) -> tuple[Path, Path]:
         "review_log": outcome.review_log,
         "engines": outcome.engines,
         "tool_runs": outcome.tool_runs,
+        "scripts": getattr(outcome, "scripts", []),
         "warnings": outcome.warnings,
         "errors": outcome.errors,
         "plan_log": getattr(outcome, "plan_log", []),

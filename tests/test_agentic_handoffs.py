@@ -58,7 +58,7 @@ def test_build_team_wires_handoffs_both_ways():
 
     # Code mode's lead is unchanged: delegate tools, no subagents, same tool budget.
     legacy = build_audit_agent("m")
-    assert legacy.handoffs == [] and len(legacy.tools) <= 18 and SPECIALIST_HANDOFFS <= {t.name for t in legacy.tools}
+    assert legacy.handoffs == [] and len(legacy.tools) <= 19 and SPECIALIST_HANDOFFS <= {t.name for t in legacy.tools}
 
     # The verifier judges any criterion; the explorer can browse.
     verifier_enum = next(t for t in team.verifier.tools if t.name == "get_criterion").params_json_schema["properties"]["criterion"]["enum"]

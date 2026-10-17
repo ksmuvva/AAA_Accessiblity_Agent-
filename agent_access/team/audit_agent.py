@@ -18,6 +18,7 @@ from agent_access.team.specialists import build_specialist, parallel_tool, speci
 from agent_access.agent_tools import INSPECTION_TOOLS, INTERACTION_TOOLS
 from agent_access.agent_tools.planning import get_open_items
 from agent_access.agent_tools.report_tools import record_finding, record_findings
+from agent_access.agent_tools.verify_tools import evaluate_js
 from agent_access.context import AuditContext, Delegation
 from agent_access.engine import criterion_tools_for
 from agent_access.models import LeadNotes
@@ -48,6 +49,10 @@ and you report only what evidence supports.
 - run_checks(criteria) measures criteria on this page state; it's cheap, because each check collects only what it
   needs. run_all_checks() measures everything at once. Before the page is declared done, code measures any
   target-level criterion nobody measured, so measure early only what you are about to judge.
+- evaluate_js(function) runs your own read-only script in the page when no check measures what you need (a
+  custom widget's states, text over an image, an element's geometry). Cite the script id it returns in your
+  evidence ("script S2"); the reviewer re-runs cited scripts. A fail that rests only on a script result goes to
+  verify_judgement first when you have it.
 - record_findings records several judgements in one call; record_finding records one.
 - get_recorded_findings shows everything recorded so far.
 
@@ -150,7 +155,7 @@ def build_audit_agent(model: str | Model | None = None, *, delegation: str = "to
     explorer's states (the explore_page and verify_judgement handoffs are attached by `build_team`).
     `specialist_builder(domain, model)` makes the specialists the delegate and parallel tools run."""
     delegation = delegation_mode(delegation)
-    tools = [get_open_items, *criterion_tools_for(None), *INSPECTION_TOOLS, record_finding, record_findings]
+    tools = [get_open_items, *criterion_tools_for(None), *INSPECTION_TOOLS, evaluate_js, record_finding, record_findings]
     tools += (specialist_tools(model, specialist_builder) if delegation == "tools"
               else [parallel_tool(model, specialist_builder)])
     tools += INTERACTION_TOOLS
