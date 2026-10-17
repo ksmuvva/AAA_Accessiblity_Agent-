@@ -126,6 +126,18 @@ def test_settled_criteria_are_not_open():
     assert "2.4.2" not in open_criteria and "1.1.1" not in open_criteria
 
 
+def test_an_unconfirmed_automated_not_applicable_is_reported_as_needs_review():
+    """The check saw the page as loaded: content behind a button would be missed. Only an auditor's not-applicable is
+    reported as such; the agents' own view still shows what the check found."""
+    audit = fresh_audit()
+    audit.replace_findings("page", None, [automated("1.2.2", Status.NOT_APPLICABLE)], "check_prerecorded_captions")
+    reported = next(c for c in compile_report(audit).criteria if c.wcag_criterion == "1.2.2")
+    assert reported.status is Status.NEEDS_REVIEW and "no auditor confirmed it" in reported.summary
+    assert next(i for i in open_items(audit)["open"] if i["criterion"] == "1.2.2")["status"] == "not_applicable"
+    add_manual_finding(audit, "1.2.2", "not_applicable", "No media.", "No video, audio or embeds in the page or tree.")
+    assert next(c for c in compile_report(audit).criteria if c.wcag_criterion == "1.2.2").status is Status.NOT_APPLICABLE
+
+
 def test_not_applicable_aggregation():
     audit = fresh_audit()
     add_manual_finding(audit, "1.2.2", "not_applicable", "No video.", "No media found.")

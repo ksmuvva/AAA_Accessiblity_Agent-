@@ -188,8 +188,9 @@ async def evaluate_script(audit: AuditContext, function: str) -> dict:
     restored = None   # None: the page didn't change; True/False: it changed and was (not) reloaded
     if after != before:
         # Restore outside the guard: inside it the reload itself would be answered with a 204.
-        restored = await audit.restore_page(page_key) if audit.can_restore(page_key) else False
-        if not restored:
+        restored = await audit.return_to(page_key)   # a labelled state is rebuilt by replaying its steps
+        if not restored:   # the cursor stays on the page or state the script ran on, so judgements still land there
+            audit.current_url = page_key
             audit.dirty.add(page_key)
         result["page_changed"] = ("The script changed the page; it was reloaded to its tested state." if restored else
                                   "The script changed the page and it could not be reloaded; results now describe a "

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 METRICS = ("recall", "precision", "decided", "false_passes")
-SETTINGS = ("git_commit", "mode", "measurement", "model", "reviewer_model", "used_lessons")
+SETTINGS = ("git_commit", "mode", "measurement", "interaction", "model", "reviewer_model", "used_lessons")
 
 
 def load(path: str) -> dict:

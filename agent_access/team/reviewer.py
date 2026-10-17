@@ -212,13 +212,14 @@ async def review_findings(
         if not items:
             continue
         try:
-            restored = not is_state_key(page_key) and await audit.restore_page(page_key)
+            restored = await audit.return_to(page_key)   # a labelled state is rebuilt by replaying its steps
         except Exception as exc:  # e.g. a navigation timeout: these results stay as recorded
             errors.append(f"reviewer ({page_key}): could not reload the page: {type(exc).__name__}")
             restored = False
         if not restored:
-            # Process states can't be recreated by reloading, so these results stay as recorded.
-            log += _not_reviewed(items, "Found in a process state the reviewer can't recreate.")
+            # A state whose steps no longer reach it (or were never recorded) can't be recreated: results stay as recorded.
+            log += _not_reviewed(items, "Found in a page state the reviewer can't rebuild." if is_state_key(page_key)
+                                 else "The page could not be reloaded for the review.")
             continue
         for start in range(0, len(items), MAX_PER_REVIEW):
             batch = items[start:start + MAX_PER_REVIEW]

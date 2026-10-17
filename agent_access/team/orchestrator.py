@@ -26,8 +26,8 @@ from agent_access.team.reviewer import needs_review_check, review_findings
 from agent_access.team.runtime import run_config
 from agent_access.team.specialists import unjudged_criteria
 from agent_access.team.summarizer import write_summary
-from agent_access.agent_tools.browser_tools import open_url, same_site_links
-from agent_access.context import AuditContext
+from agent_access.agent_tools.browser_tools import open_url, page_fingerprint, same_site_links
+from agent_access.context import AuditContext, is_state_key
 from agent_access.models import AuditSummary, PagePick, SiteReport
 from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
 from agent_access.agent_tools.report_tools import compile_site_report
@@ -114,7 +114,17 @@ async def _load(audit: AuditContext, url: str, outcome: AuditOutcome, progress) 
 async def _back_to(audit: AuditContext, page_key: str) -> bool:
     """Make `page_key` the loaded, unmodified page. The cursor alone isn't proof: a measurement floor may have
     reloaded another page meanwhile, so the live browser URL must match too (inline pages show about:blank and are
-    always reloaded, which is cheap)."""
+    always reloaded, which is cheap). A labelled state is loaded when its fingerprint still matches; otherwise it is
+    rebuilt by replaying its steps. A state with no recorded steps can only be judged while it is still loaded."""
+    if is_state_key(page_key):
+        path = audit.state_paths.get(page_key)
+        if audit.current_url == page_key and page_key not in audit.dirty and (
+                path is None or await page_fingerprint(audit) == path["fingerprint"]):
+            return True
+        try:
+            return await audit.restore_state(page_key)
+        except Exception:
+            return False
     if audit.current_url == page_key and page_key not in audit.dirty and (await audit.page()).url == page_key:
         return True
     try:
@@ -154,6 +164,16 @@ async def _run_lead(audit: AuditContext, model, prompt: str, max_turns: int, out
         outcome.errors.append(_err(f"lead auditor ({stage})", exc))
 
 
+def continuation_prompt(page_key: str, items: dict, why: str = "Earlier work on it is already recorded.") -> str:
+    """The prompt of a fresh lead run on a page that still has open criteria (both modes). It says plainly what a run
+    must end with, because a lead that can't decide a criterion tends to stop instead of recording needs_review."""
+    return (f"Continue auditing {page_key}. {why} Still open ({items['open_count']}): "
+            + ", ".join(f"{i['criterion']} {i['title']}" for i in items["open"]) + ".\n"
+            "Record a judgement for every one of them: pass, fail or not_applicable with your evidence, or needs_review "
+            "naming what a human must check when you can't decide. needs_review is a valid judgement; leaving a "
+            "criterion unjudged is not. record_findings records several in one call.")
+
+
 async def _lead_runs(audit: AuditContext, page_key: str, model, max_turns: int, outcome: AuditOutcome,
                      note_prefix: str) -> None:
     """Run the lead on one page until get_open_items is done, with at most LEAD_RUNS_PER_PAGE fresh runs."""
@@ -168,9 +188,7 @@ async def _lead_runs(audit: AuditContext, page_key: str, model, max_turns: int, 
         if not await _back_to(audit, page_key):
             outcome.errors.append(f"lead auditor ({page_key}): the page could not be restored for another run.")
             return
-        prompt = f"Audit this page: {page_key}" if attempt == 0 else (
-            f"Continue auditing {page_key}. Earlier work on it is already recorded. Still open: "
-            + ", ".join(f"{i['criterion']} {i['title']}" for i in items["open"]) + ".")
+        prompt = f"Audit this page: {page_key}" if attempt == 0 else continuation_prompt(page_key, items)
         await _run_lead(audit, model, prompt, max_turns, outcome, page_key, note_prefix)
 
 

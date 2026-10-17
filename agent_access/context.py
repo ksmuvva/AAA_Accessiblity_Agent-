@@ -132,6 +132,12 @@ class AuditContext:
     # Pages changed by free-form interaction since they were loaded: their cached engine results are stale.
     # Per context: a fork's page can be changed while the root's copy is still pristine.
     dirty: set[str] = field(default_factory=set)
+    # The interaction steps (click, fill, press) taken on this context's page since it was loaded fresh as
+    # `steps_origin` (a plain page key), so a state labelled after them can be rebuilt by replaying them. Per context,
+    # like the page. `state_paths` (shared) maps each rebuildable state key to {"origin", "steps", "fingerprint"}.
+    steps: list[dict] = field(default_factory=list)
+    steps_origin: str | None = None
+    state_paths: dict[str, dict] = field(default_factory=dict)
     # Agentic mode (see .claude/AGENTIC_PLAN.md): the run's Budget (G1), the planner's decisions (G1), guard tripwires
     # recorded by network_guard and the interaction tools (G5), the handoff log (G2), and the site/lesson memory (G4).
     budget: object | None = None
@@ -193,7 +199,7 @@ class AuditContext:
         if owner not in self._forks:
             child = _ForkedContext.__new__(_ForkedContext)
             own = {"_root": self, "owner": owner, "current_url": None, "dirty": set(), "lock": asyncio.Lock(),
-                   "_page": None, "_restoring": False}
+                   "_page": None, "_restoring": False, "steps": [], "steps_origin": None}
             for name, value in own.items():
                 object.__setattr__(child, name, value)
             self._forks[owner] = child
@@ -291,7 +297,33 @@ class AuditContext:
             self._restoring = False
         self.current_url = key
         self.dirty.discard(key)
+        self.start_steps(key)
         return True
+
+    def start_steps(self, page_key: str) -> None:
+        """The page was just loaded fresh as `page_key`: interaction steps from here on can be replayed from it."""
+        self.steps, self.steps_origin = [], page_key
+
+    async def restore_state(self, state_key: str) -> bool:
+        """Rebuild a labelled state: reload the page it started from, replay the steps that reached it, and check the
+        page matches what was labelled (its fingerprint). False when the state has no recorded path or the replay
+        reached a different page; the browser is then left on the changed origin page."""
+        from agent_access.agent_tools.browser_tools import page_fingerprint, replay_steps  # it imports this module
+        path = self.state_paths.get(state_key)
+        if path is None or not await self.restore_page(path["origin"]):
+            return False
+        if not await replay_steps(self, path["steps"]) or await page_fingerprint(self) != path["fingerprint"]:
+            self.dirty.add(path["origin"])
+            return False
+        self.steps, self.current_url = list(path["steps"]), state_key
+        self.dirty.discard(state_key)
+        if path["steps"]:
+            self.dirty.add(path["origin"])   # the browser shows the state now, not the origin page
+        return True
+
+    async def return_to(self, page_key: str) -> bool:
+        """Load `page_key` as it was audited: restore_page for a page, restore_state for a labelled state."""
+        return await (self.restore_state(page_key) if is_state_key(page_key) else self.restore_page(page_key))
 
     async def _reload(self, page: Page, url: str) -> None:
         """goto with the two recoveries real sites need: a load timeout is retried waiting only for the document
@@ -355,7 +387,7 @@ class AuditContext:
         page = await self.page()
         blocked: list[str] = []
         host = urlparse(page.url).netloc
-        agent_action = source == "agent" or allow_navigation
+        agent_action = source == "agent"
 
         async def handler(route: Route, request: Request) -> None:
             safe = request.method in SAFE_METHODS
@@ -410,7 +442,7 @@ class AuditContext:
 
 
 # What a fork keeps for itself; every other attribute lives on the root and is read and written there.
-_OWN = frozenset({"current_url", "lock", "dirty", "owner", "_page", "_restoring", "_root"})
+_OWN = frozenset({"current_url", "lock", "dirty", "owner", "_page", "_restoring", "_root", "steps", "steps_origin"})
 _SHARED = frozenset(f.name for f in fields(AuditContext)) - _OWN
 
 
