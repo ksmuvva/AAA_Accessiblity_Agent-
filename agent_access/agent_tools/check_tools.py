@@ -84,8 +84,13 @@ async def run_sweep_remaining(audit: AuditContext, page_key: str | None = None) 
                               "on it were not run by the measurement floor.")
         return []
     live = (await audit.page()).url == page and page not in audit.dirty  # inline pages show about:blank: reload them
-    if not live and not await audit.restore_page(page):
-        audit.warnings.append(f"{page}: the page could not be restored, so its remaining checks did not run.")
+    try:
+        restored = live or await audit.restore_page(page)
+    except Exception as exc:  # a reload timeout on one page must not end the run without a report
+        restored = f"{type(exc).__name__}"
+    if restored is not True:
+        audit.warnings.append(f"{page}: the page could not be restored{f' ({restored})' if restored else ''}, so its "
+                              "remaining checks did not run.")
         return []
     before = len(audit.tool_runs)
     with audit.at_page(page):

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from agents import Agent, ModelSettings, RunContextWrapper, function_tool
+from agents import Agent, RunContextWrapper, function_tool
 from agents.models.interface import Model
 
 from agent_access.agent_tools import INSPECTION_TOOLS
@@ -19,6 +19,7 @@ from agent_access.agent_tools.verify_tools import SELF_VERIFICATION_TOOLS  # G5:
 from agent_access.context import AuditContext
 from agent_access.engine import criterion_tools_for
 from agent_access.team.handoffs import Verification, VerifyBrief, brief_section, run_subagent
+from agent_access.team.runtime import settings
 
 VERIFIER_MAX_TURNS = 20
 
@@ -67,6 +68,6 @@ def build_verifier(model: str | Model | None = None) -> Agent[AuditContext]:
         instructions=_instructions,
         tools=[*criterion_tools_for(None), *INSPECTION_TOOLS, record_finding, *SELF_VERIFICATION_TOOLS],
         model=model,
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=settings(model, parallel_tool_calls=False),
         output_type=Verification,
     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import ipaddress
 import json
 import re
 from urllib.parse import urldefrag, urlparse
@@ -12,6 +13,7 @@ from agents import RunContextWrapper, ToolOutputImage, ToolOutputText, function_
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from agent_access.context import AuditContext, base_page_key, call_tool, no_page
+from agent_access.intent import irreversible
 from agent_access.jsassets import js
 
 NAVIGATION_TIMEOUT_MS = 30_000
@@ -30,15 +32,41 @@ FINGERPRINT_JS = js("browser_tools/fingerprint")
 INSPECT_JS = js("browser_tools/inspect")
 LINKS_JS = js("browser_tools/links")
 
-_SKIP_LINK = re.compile(r"(log ?out|sign ?out|delete|unsubscribe)", re.I)
 _NON_PAGE_EXT = re.compile(r"\.(pdf|zip|jpe?g|png|gif|svg|webp|mp[34]|docx?|xlsx?|pptx?)$", re.I)
+
+
+def _private(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_unspecified
+    except ValueError:
+        return host == "localhost" or host.endswith((".localhost", ".local", ".internal")) or "." not in host
+
+
+def refused(audit: AuditContext, url: str) -> str | None:
+    """Why the audit must not open `url`: a destructive address, a private one when the site is public, or another site
+    (once the first page fixed which site this is, unless allow_offsite)."""
+    parsed = urlparse(url)
+    if irreversible(f"{parsed.path} {parsed.query}"):
+        return "its address looks destructive"
+    start = next((urlparse(p) for p in audit.pages if p.startswith(("http://", "https://"))), None)
+    if start is None:
+        return None
+    if _private(parsed.hostname or "") and not _private(start.hostname or ""):
+        return "it is a private or local address"
+    if not audit.allow_offsite and parsed.netloc.lower().removeprefix("www.") != start.netloc.lower().removeprefix("www."):
+        return "it is not on the audited site"
+    return None
 
 
 async def open_url(audit: AuditContext, url: str) -> dict:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return {"error": "Only absolute http(s) URLs are supported. Use load_html for raw HTML."}
+    if why := refused(audit, url):
+        return {"error": f"Refused to open {url}: {why}."}
     page = await audit.page()
+    audit.fresh = True
     try:
         try:
             response = await page.goto(url, wait_until="load", timeout=NAVIGATION_TIMEOUT_MS)
@@ -129,7 +157,7 @@ async def same_site_links(audit: AuditContext, limit: int = 30) -> dict:
         parsed = urlparse(href)
         if parsed.scheme not in ("http", "https") or parsed.netloc != origin.netloc:
             continue
-        if _NON_PAGE_EXT.search(parsed.path) or _SKIP_LINK.search(href + " " + link["text"]):
+        if _NON_PAGE_EXT.search(parsed.path) or irreversible(href + " " + link["text"]):
             continue
         if href.rstrip("/") == urldefrag(page.url)[0].rstrip("/") or href in audit.pages:
             continue

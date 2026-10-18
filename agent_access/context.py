@@ -19,11 +19,13 @@ from typing import TYPE_CHECKING, AsyncIterator, Awaitable, Callable, Iterator, 
 from urllib.parse import urlparse
 
 from agents import RunContextWrapper
-from playwright.async_api import Browser, BrowserContext, Page, Playwright, Request, Route, async_playwright
+from playwright.async_api import (Browser, BrowserContext, Page, Playwright, Request, Route, WebSocketRoute,
+                                  async_playwright)
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from agent_access.catalogue.catalogue import LEVEL_ORDER, Catalogue, Rule, load_catalogue
+from agent_access.intent import destroys
 from agent_access.jsassets import js
 from agent_access.models import Finding
 
@@ -35,6 +37,9 @@ NAVIGATION_TIMEOUT_MS = 30_000
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 # Installed before any page script runs: logs listeners, timers, and window.open (read by the instrumentation probe).
 INSTRUMENT_JS = js("page/instrument")
+SAFETY_JS = js("page/safety")
+# GET requests that can act (a page load or a script call); an image or a stylesheet with "delete" in its name can't.
+ACTING_TYPES = ("document", "fetch", "xhr", "ping", "eventsource", "other")
 # Probe-level guard tripwires (no action) stop being stored past this many; probes block every form post they
 # trigger. Records of an agent's blocked actions are never capped: they are what the report shows.
 MAX_TRIPWIRES = 500
@@ -92,8 +97,8 @@ class AuditContext:
     allowed_writes: tuple[str, ...] = ()
     # Free-form interaction may follow links to other hosts only when set (network_guard blocks them otherwise).
     allow_offsite: bool = False
-    # Send agent traces to the OpenAI tracing dashboard (they include page content and screenshots).
-    tracing: bool = True
+    # Send agent traces to the OpenAI tracing dashboard (they include page content and screenshots): opt-in.
+    tracing: bool = False
     output_dir: Path = Path("reports")
     # Conformance target: "A", "AA", or "AAA". Criteria above it are still tested and reported separately.
     target_level: str = "AA"
@@ -159,6 +164,12 @@ class AuditContext:
     _page: Page | None = field(default=None, init=False, repr=False)
     # True while restore_page navigates, so an active network_guard lets that one navigation through.
     _restoring: bool = field(default=False, init=False, repr=False)
+    # This context's page as the run-wide route sees it (see network_guard): the guard windows open on it, the last one
+    # closed, and `fresh`, true from our own load of the page until the next window (only then may it write on its own).
+    _windows: list = field(default_factory=list, init=False, repr=False)
+    _last_window: dict | None = field(default=None, init=False, repr=False)
+    fresh: bool = field(default=False, init=False, repr=False)
+    _by_page: dict = field(default_factory=dict, init=False, repr=False)  # on the root: every page we opened -> its context
     # Forks by owner name (kept on the root), and one lock per (page key, probe) so concurrent forks measure once.
     _forks: dict[str, "AuditContext"] = field(default_factory=dict, init=False, repr=False)
     _probe_locks: dict[tuple, asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
@@ -182,9 +193,14 @@ class AuditContext:
                 self._playwright = await async_playwright().start()
                 self._browser = await self._playwright.chromium.launch(headless=self.headless)
                 # bypass_csp lets us inject axe-core into pages with strict Content-Security-Policy.
-                self._context = await self._browser.new_context(viewport=DEFAULT_VIEWPORT, bypass_csp=True)
+                self._context = await self._browser.new_context(viewport=DEFAULT_VIEWPORT, bypass_csp=True,
+                                                                service_workers="block")
                 await self._context.add_init_script(INSTRUMENT_JS)
+                await self._context.add_init_script(SAFETY_JS)
+                await self._context.route("**/*", self._route)
                 self._page = await self._context.new_page()
+            self._by_page[self._page] = self
+            await self._page.route_web_socket("**/*", self._websocket)
         return self._page
 
     def fork(self, owner: str) -> AuditContext:
@@ -199,7 +215,8 @@ class AuditContext:
         if owner not in self._forks:
             child = _ForkedContext.__new__(_ForkedContext)
             own = {"_root": self, "owner": owner, "current_url": None, "dirty": set(), "lock": asyncio.Lock(),
-                   "_page": None, "_restoring": False, "steps": [], "steps_origin": None}
+                   "_page": None, "_restoring": False, "steps": [], "steps_origin": None,
+                   "_windows": [], "_last_window": None, "fresh": False}
             for name, value in own.items():
                 object.__setattr__(child, name, value)
             self._forks[owner] = child
@@ -283,8 +300,8 @@ class AuditContext:
         if key is None or is_state_key(key):
             return False
         page = await self.page()
-        # Probes restore the page from inside network_guard, which answers main-frame navigations with 204 (and a
-        # 204 to a goto surfaces as net::ERR_ABORTED). The flag tells the guard to let this reload through.
+        # Probes may restore the page while a network_guard window blocks main-frame navigations; the flag lets this
+        # reload through.
         self._restoring = True
         try:
             if key in self.inline_html:
@@ -329,6 +346,7 @@ class AuditContext:
         """goto with the two recoveries real sites need: a load timeout is retried waiting only for the document
         (heavy sites keep loading ads and trackers), and net::ERR_ABORTED (a client-side navigation started by the
         probe superseded our reload, seen on angular.dev and vuejs.org) is retried once."""
+        self.fresh = True
         for attempt in range(2):
             try:
                 await page.goto(url, wait_until="load", timeout=NAVIGATION_TIMEOUT_MS)
@@ -349,10 +367,11 @@ class AuditContext:
         about:blank first gives the scripts a fresh global scope.
         """
         page = await self.page()
+        self.fresh = True
         await page.goto("about:blank")
         await page.set_content(html, wait_until="load", timeout=NAVIGATION_TIMEOUT_MS)
 
-    def _trip(self, kind: str, request: Request, *, agent_action: bool, tool: str | None, offsite: bool = False) -> None:
+    def _trip(self, kind: str, detail: str, *, agent_action: bool, tool: str | None, offsite: bool = False) -> None:
         """Record a blocked request in tripwires (same keys as agent_access.tripwires.record_tripwire).
 
         A probe's guard blocks form posts on purpose: those records have no "action" and stay out of the report
@@ -365,7 +384,7 @@ class AuditContext:
             return  # only the expected probe blocks are capped; an agent's blocked action is always kept
         self.tripwires.append({"time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                                "page_url": self.current_url, "owner": self.owner, "kind": kind,
-                               "detail": f"{request.method} {request.url}" + (" (offsite)" if offsite else ""),
+                               "detail": detail + (" (offsite)" if offsite else ""),
                                "action": "blocked" if agent_action else None, "agent": None, "tool": tool})
 
     @asynccontextmanager
@@ -373,48 +392,76 @@ class AuditContext:
         self, *, allow_navigation: bool = False, allow_writes: tuple[str, ...] = (),
         source: Literal["probe", "agent"] = "probe", tool: str | None = None,
     ) -> AsyncIterator[list[str]]:
-        """Block requests that could change server state or leave the page, while a test interacts with it.
+        """Open a window of rules on this context's page while a test or an agent interacts with it.
 
-        By default blocks every non-GET request (form posts, API writes) and every main-frame navigation.
-        Free-form interaction passes allow_navigation=True (GET navigations, e.g. following a "Next" link,
-        go through, but only to the page's own host unless allow_offsite is set) and the user's allow_writes URL
-        prefixes (non-GET requests to them go through).
-        Yields the list of blocked requests, which tests use to tell that a form *tried* to submit. Every blocked
-        request is also recorded in `tripwires`: with source="agent" (free-form interaction, an agent's own script;
-        `tool` names the caller) as a reportable safety event with an action, with the default source="probe" as an
-        expected block with none.
+        Every request of the run goes through one route on the browser context (`_route`), judged by its page's open
+        window. By default a window blocks every non-GET request (form posts, API writes), every GET whose path says it
+        acts destructively, and every main-frame navigation. Free-form interaction passes allow_navigation=True (GET
+        navigations go through, but only to the page's own host unless allow_offsite is set) and the user's
+        allow_writes URL prefixes. The rules stay in force after the window closes, until the page is loaded fresh
+        again: a delayed save, a timer's fetch or a socket message a click set off is still blocked.
+        Yields the list of blocked requests, which tests use to tell that a form *tried* to submit. Every block is also
+        recorded in `tripwires`: with source="agent" (`tool` names the caller) as a reportable safety event with an
+        action; with the default source="probe", or after the window closed, as an expected block with none.
         """
         page = await self.page()
         blocked: list[str] = []
-        host = urlparse(page.url).netloc
-        agent_action = source == "agent"
-
-        async def handler(route: Route, request: Request) -> None:
-            safe = request.method in SAFE_METHODS
-            allowed = safe or (bool(allow_writes) and request.url.startswith(allow_writes))
-            if request.is_navigation_request() and request.frame == page.main_frame:
-                # Free-form interaction may follow GET links; restore_page's own reload (and its redirects) always may.
-                offsite = bool(host) and urlparse(request.url).netloc not in ("", host) and not self.allow_offsite
-                if allowed and (self._restoring and safe or allow_navigation and not offsite):
-                    await route.continue_()
-                    return
-                # 204 No Content makes the browser stay on the current page. Aborting instead would
-                # replace the page with a "can't reach this site" error page.
-                blocked.append(f"{request.method} {request.url} (navigation)")
-                self._trip("blocked_navigation", request, agent_action=agent_action, tool=tool, offsite=allowed and offsite)
-                await route.fulfill(status=204, body="")
-            elif not allowed:
-                blocked.append(f"{request.method} {request.url}")
-                self._trip("blocked_write", request, agent_action=agent_action, tool=tool)
-                await route.abort()
-            else:
-                await route.continue_()
-
-        await page.route("**/*", handler)
+        window = {"nav": allow_navigation, "writes": allow_writes, "agent": source == "agent", "tool": tool,
+                  "blocked": blocked, "host": urlparse(page.url).netloc}
+        self._windows.append(window)
+        self.fresh = False
         try:
             yield blocked
         finally:
-            await page.unroute("**/*", handler)
+            self._windows.remove(window)
+            self._last_window = window
+
+    async def _route(self, route: Route, request: Request) -> None:
+        """Every request of the run: judged by the window of the page that sent it."""
+        try:
+            owner = self._by_page.get(request.frame.page)
+        except Exception:  # a worker's request has no frame: it may read, nothing more
+            if request.method in SAFE_METHODS and not request.is_navigation_request():
+                return await route.continue_()
+            return await route.abort()
+        if owner is None:  # a page we didn't open (a popup, a target=_blank tab): nothing it sends gets out
+            return await route.abort()
+        await owner._judge(route, request)
+
+    async def _judge(self, route: Route, request: Request) -> None:
+        active = bool(self._windows)
+        window = self._windows[-1] if active else None if self.fresh else self._last_window
+        safe = request.method in SAFE_METHODS
+        if window is None or self._restoring and safe:
+            return await route.continue_()
+        acts = request.resource_type in ACTING_TYPES and destroys(urlparse(request.url).path)
+        allowed = safe and not acts or _write_allowed(request.url, window["writes"])
+        detail, agent = f"{request.method} {request.url}", window["agent"] and active
+        if request.is_navigation_request() and request.frame == self._page.main_frame:
+            offsite = urlparse(request.url).netloc not in ("", window["host"]) and not self.allow_offsite
+            if allowed and window["nav"] and not offsite:
+                return await route.continue_()
+            window["blocked"].append(f"{detail} (navigation)")
+            self._trip("blocked_navigation", detail, agent_action=agent, tool=window["tool"], offsite=allowed and offsite)
+            await route.abort("aborted")  # the page stays as it is; a plain abort would show Chromium's error page
+        elif not allowed:
+            window["blocked"].append(detail)
+            self._trip("blocked_write", detail, agent_action=agent, tool=window["tool"])
+            await route.abort()
+        else:
+            await route.continue_()
+
+    def _websocket(self, ws: WebSocketRoute) -> None:
+        """Sockets connect and the server's messages arrive, but nothing the page sends gets out once it is not fresh."""
+        server = ws.connect_to_server()
+
+        def send(message) -> None:
+            if self.fresh and not self._windows:
+                server.send(message)
+            else:
+                self._trip("blocked_write", f"WebSocket send to {ws.url}", agent_action=False, tool=None)
+
+        ws.on_message(send)
 
     async def close(self) -> None:
         if self._root is not None:  # a fork: close only its page and forget it
@@ -442,8 +489,20 @@ class AuditContext:
 
 
 # What a fork keeps for itself; every other attribute lives on the root and is read and written there.
-_OWN = frozenset({"current_url", "lock", "dirty", "owner", "_page", "_restoring", "_root", "steps", "steps_origin"})
+_OWN = frozenset({"current_url", "lock", "dirty", "owner", "_page", "_restoring", "_root", "steps", "steps_origin",
+                  "_windows", "_last_window", "fresh"})
 _SHARED = frozenset(f.name for f in fields(AuditContext)) - _OWN
+
+
+def _write_allowed(url: str, prefixes: tuple[str, ...]) -> bool:
+    """A --allow-submit prefix covers a URL on the same origin whose path extends the prefix's at a "/" boundary."""
+    target = urlparse(url)
+    for prefix in map(urlparse, prefixes):
+        path = prefix.path.rstrip("/")
+        if (target.scheme, target.netloc) == (prefix.scheme, prefix.netloc) and (
+                target.path == path or target.path.startswith(path + "/")):
+            return True
+    return False
 
 
 class _ForkedContext(AuditContext):

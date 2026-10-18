@@ -105,6 +105,8 @@ def test_manual_finding_precedence():
     add_manual_finding(audit, "3.1.1", "pass", "Language set.", "lang='en'.")
     add_manual_finding(audit, "3.1.1", "fail", "Language wrong.", "Page is French but lang='en'.")
 
+    for f in audit.findings:
+        f.review_verdict = "confirmed"   # the report counts an agent's verdict once the reviewer confirmed it
     by_criterion = {c.wcag_criterion: c for c in compile_report(audit).criteria}
     assert by_criterion["2.4.2"].status is Status.PASS
     assert by_criterion["3.1.1"].status is Status.FAIL  # a failure always wins over a pass

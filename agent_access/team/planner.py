@@ -27,7 +27,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Literal
 
-from agents import Agent, ModelSettings, RunContextWrapper, Runner, function_tool
+from agents import Agent, RunContextWrapper, Runner, function_tool
 from agents.exceptions import AgentsException
 from agents.models.interface import Model
 from openai import APIError
@@ -43,7 +43,7 @@ from agent_access.context import AuditContext, is_state_key, run_parallel
 from agent_access.engine import run_site_tests, sweep_summary
 from agent_access.memory import MEMORY_TOOLS, remember_run
 from agent_access.team.guardrails import apply_guardrails, scrub
-from agent_access.team.runtime import run_config
+from agent_access.team.runtime import run_config, settings
 
 AGENT_ERRORS = (AgentsException, APIError)
 PLANNER_MAX_TURNS = 60
@@ -129,7 +129,7 @@ Return a SkipReview with exactly one verdict per skipped page.
 
 def build_skip_reviewer(model: str | Model | None) -> Agent[AuditContext]:
     return Agent[AuditContext](name="Skip reviewer", instructions=SKIP_REVIEWER_INSTRUCTIONS, tools=[], model=model,
-                               output_type=SkipReview)
+                               model_settings=settings(model), output_type=SkipReview)
 
 
 def page_profile(audit: AuditContext, page_key: str) -> dict:
@@ -620,7 +620,7 @@ def build_planner(model: str | Model | None, state: PlanState) -> Agent[AuditCon
         instructions=_instructions(state),
         tools=planner_tools(state),
         model=model,
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=settings(model, parallel_tool_calls=False),
         output_type=PlanReport,
     ))
 
@@ -634,7 +634,7 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
     The caller (orchestrator.run_audit) has resolved the models, started NVDA if wanted, and opened and measured the
     start page, exactly as in code mode; this function starts where the per-page loop used to.
     """
-    from agent_access.team.orchestrator import AuditOutcome, coverage_warnings
+    from agent_access.team.orchestrator import AuditOutcome, coverage_warnings, unreviewed_warning
 
     if not audit.has_page():
         raise ValueError("run_agentic_audit needs the start page to be loaded")
@@ -698,6 +698,7 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
             progress("Reviewer: verifying findings recorded after the review...")
             await _review(audit, state, pages=late)
             state.summary = None
+    outcome.warnings += unreviewed_warning(audit)
     outcome.lead_notes += state.lead_notes
     outcome.review_log = state.review_log
     outcome.errors += state.errors

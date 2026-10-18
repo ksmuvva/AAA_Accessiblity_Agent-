@@ -23,7 +23,7 @@ from openai import APIError
 
 from agent_access.team.audit_agent import build_audit_agent
 from agent_access.team.reviewer import needs_review_check, review_findings
-from agent_access.team.runtime import run_config
+from agent_access.team.runtime import run_config, settings
 from agent_access.team.specialists import unjudged_criteria
 from agent_access.team.summarizer import write_summary
 from agent_access.agent_tools.browser_tools import open_url, page_fingerprint, same_site_links
@@ -143,7 +143,7 @@ async def pick_pages(audit: AuditContext, n: int, model: str | Model | None, out
         return candidates
     chosen: list[str] = []
     picker = Agent(name="Page picker", instructions=PICKER_INSTRUCTIONS.replace("{n}", str(n)), model=model,
-                   output_type=PagePick)
+                   model_settings=settings(model), output_type=PagePick)
     try:
         result = await Runner.run(picker, json.dumps({"start_page": audit.current_url, "links": links}), max_turns=2,
                                   run_config=run_config(audit, "WCAG audit: page picker"))
@@ -213,7 +213,13 @@ def coverage_warnings(audit: AuditContext, skipped: dict[str, str] | None = None
             if left:
                 warnings.append(f"{page_key}: the {domain} specialist left {len(left)} criteria without a judgement "
                                 f"(they need a human tester): " + ", ".join(left) + ".")
-    return warnings
+    return warnings + [w for w in audit.warnings if w not in warnings]   # the measurement floor's own gaps
+
+
+def unreviewed_warning(audit: AuditContext) -> list[str]:
+    """After the review: the results it never got to (budget, an error, a page it couldn't reload, --skip-review)."""
+    n = sum(1 for f in audit.findings if needs_review_check(f) and f.review_verdict in (None, "not_reviewed"))
+    return [f"{n} result(s) were not reviewed; the report counts an agent's verdict among them as needs review."] if n else []
 
 
 def default_reviewer_model(model: str | Model | None) -> str | Model | None:
@@ -322,6 +328,7 @@ async def run_audit(
         outcome.errors += review_errors
         outcome.memory = remember_run_safely(audit, outcome)
 
+    outcome.warnings += unreviewed_warning(audit)
     outcome.tool_runs = audit.tool_runs
     outcome.engines = dict(audit.engines)
     outcome.report = compile_site_report(audit)

@@ -43,6 +43,7 @@ from agents import (
     tool_output_guardrail,
 )
 
+from agent_access.intent import DESCRIBE_JS, irreversible
 from agent_access.tripwires import record_tripwire
 
 RESOLVE_TIMEOUT_MS = 2_000
@@ -99,19 +100,8 @@ def page_content_injection(data: ToolOutputGuardrailData) -> ToolGuardrailFuncti
 
 # ------------------------------------------------------------------ interaction safety
 
-# Deliberately not probes/interaction.RISKY_LABEL: blind probes skip anything that might submit, but free-form
-# interaction runs under network_guard, which already blocks the write a Submit sends, so only irreversible intent is
-# refused here (refusing Submit/Checkout would stop process audits short of their blocked write).
-DESTRUCTIVE = re.compile(
-    r"\b(?:buy|purchase|pay(?:\s+now)?|payment|place\s+(?:an\s+|your\s+|the\s+)?order|order\s+now|"
-    r"complete\s+(?:order|purchase|booking|payment)|confirm\s+(?:order|purchase|payment|booking)|book\s+now|"
-    r"delete|erase|destroy|remove\s+(?:account|all)|close\s+(?:my\s+|your\s+)?account|deactivate|"
-    r"cancel\s+(?:my\s+|your\s+)?(?:account|subscription|order|membership)|unsubscribe|subscribe|"
-    r"log\s?out|sign\s?out|log\s?off|send|donate|transfer|withdraw)\b", re.I)
+# Agents may press Submit (network_guard blocks the write it sends), so only irreversible intent is refused here.
 ACTIVATING_KEYS = {"enter", "numpadenter", " ", "space"}
-DESCRIBE_JS = """(el) => [el.innerText, el.value, el.getAttribute('aria-label'), el.getAttribute('title'),
-  el.getAttribute('href'), el.getAttribute('name'), el.id].filter(v => typeof v === 'string' && v.trim())
-  .join(' | ').slice(0, 300)"""
 ACTIVE_JS = "() => { const el = document.activeElement; return el && el !== document.body ? (" + DESCRIBE_JS + ")(el) : ''; }"
 
 
@@ -152,12 +142,12 @@ async def destructive_action(data: ToolInputGuardrailData) -> ToolGuardrailFunct
     else:
         selector = str(args.get("selector", ""))
         label = await _describe_target(data.context.context, selector)
-    match = DESTRUCTIVE.search(f"{selector or ''} | {label}")
-    if not match:
+    phrase = irreversible(f"{selector or ''} | {label}")
+    if not phrase:
         return ToolGuardrailFunctionOutput.allow()
     target = f"{selector or 'the focused element'} ({label[:120] or 'no text'})"
-    return _refuse(data, "destructive_action", f"{data.context.tool_name} {target}: '{match.group(0)}'",
-                   f"Refused: {target} looks like it would {match.group(0).lower()} something for real. The audit "
+    return _refuse(data, "destructive_action", f"{data.context.tool_name} {target}: '{phrase}'",
+                   f"Refused: {target} looks like it would {phrase} something for real. The audit "
                    "never buys, pays, deletes, sends, subscribes or signs out. Test this step's accessibility without "
                    "activating it (inspect it, check its name and focus), and note in your output that the process "
                    "stops here.")
@@ -287,11 +277,13 @@ def instructions_in_input(ctx: RunContextWrapper, agent: Agent, input) -> Guardr
 
 CONFORMANCE_CLAIM = re.compile(
     r"\b(?:fully|completely|entirely|100%)\s+(?:accessible|compliant|conformant)\b|"
-    r"\b(?:conforms?|complies|compliant|conformant|meets|satisf(?:y|ies))\s+(?:fully\s+)?(?:with\s+|to\s+)?"
-    r"(?:all\s+(?:of\s+)?)?(?:the\s+)?WCAG\b|"
-    r"\bWCAG(?:\s*2(?:\.[0-2])?)?(?:\s*(?:Level\s+)?A{1,3})?[\s-]+(?:compliant|conformant)\b", re.I)
-NEGATION = re.compile(r"\b(?:not|never|cannot|can't|isn't|doesn't|does not|fails? to|non|nor|without|until|before)\b"
-                      r"[^.]{0,30}$", re.I)
+    r"\b(?:conforms?|complies|compliant|conformant|meets|passes|satisf(?:y|ies))\s+(?:fully\s+)?(?:with\s+|to\s+)?"
+    r"(?:all\s+(?:of\s+)?)?(?:the\s+)?(?:WCAG|Level\s+A{1,3}\b)|"
+    r"\bin\s+(?:full\s+)?compliance\s+with\b|"
+    r"\b(?:WCAG(?:\s*2(?:\.[0-2])?)?(?:\s*(?:Level\s+)?A{1,3})?|A{1,3})[\s-]+(?:compliant|conformant)\b", re.I)
+# Before a match: a negation, or advice about what would make it true ("fix these so the site meets WCAG").
+NEGATION = re.compile(r"\b(?:not|never|cannot|can't|isn't|doesn't|does not|fails? to|non|nor|without|until|before|"
+                      r"so|once|would|could|after|in order to|to (?:make|bring|help))\b[^.]{0,30}$", re.I)
 
 
 def conformance_claims(text: str) -> list[str]:
@@ -299,9 +291,11 @@ def conformance_claims(text: str) -> list[str]:
 
 
 def _conformance_supported(audit) -> bool:
-    """Only an audit with findings and no fail or needs_review anywhere could support a conformance claim."""
-    findings = audit.findings
-    return bool(findings) and not any(f.status.value in ("fail", "needs_review") for f in findings)
+    """Only a report whose every target criterion passed or doesn't apply could support a conformance claim."""
+    from agent_access.agent_tools.report_tools import compile_site_report
+
+    report = compile_site_report(audit)
+    return report is not None and all(c.status.value in ("pass", "not_applicable") for c in report.criteria)
 
 
 @output_guardrail
@@ -322,6 +316,7 @@ GUARDRAILS: dict[str, dict[str, list]] = {
     "Navigation specialist": PAGE_AGENT,
     "Explorer": PAGE_AGENT,
     "Verifier": PAGE_AGENT,
+    "Reviewer": PAGE_AGENT,
     "Summary writer": {"input": [], "output": [no_conformance_claim]},
 }
 

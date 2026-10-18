@@ -160,6 +160,15 @@ async def measure_probe(audit: AuditContext, probe: str, targets=(), options: Pr
     return result
 
 
+STORAGE_JS = "() => { try { return [Object.entries(localStorage), Object.entries(sessionStorage)]; } catch (e) { return null; } }"
+RESTORE_STORAGE_JS = """(saved) => { if (!saved) return; [localStorage, sessionStorage].forEach((store, i) => {
+  store.clear(); for (const [k, v] of saved[i]) store.setItem(k, v); }); }"""
+
+
+async def _site_state(page) -> tuple[list, list | None]:
+    return await page.context.cookies(), await page.evaluate(STORAGE_JS)
+
+
 async def evaluate_script(audit: AuditContext, function: str) -> dict:
     """Run `function` (a JS function or expression) in the page, read-only: writes and navigations are blocked, and
     if the script changed the DOM the page is restored afterwards (or marked changed when it can't be)."""
@@ -168,6 +177,7 @@ async def evaluate_script(audit: AuditContext, function: str) -> dict:
     page = await audit.page()
     page_key = audit.current_url
     before = await page.evaluate(FINGERPRINT_JS)
+    site_state = await _site_state(page)
     result: dict = {"page_url": page_key}
     async with audit.network_guard(source="agent", tool="evaluate_js") as blocked:
         try:
@@ -181,13 +191,18 @@ async def evaluate_script(audit: AuditContext, function: str) -> dict:
             result["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
     if blocked:
         result["blocked_requests"] = blocked[:10]
+    if await _site_state(page) != site_state:   # cookies outlive the page, so a reload wouldn't undo them
+        await page.context.clear_cookies()
+        await page.context.add_cookies(site_state[0])
+        await page.evaluate(RESTORE_STORAGE_JS, site_state[1])
+        result["state_changed"] = "The script changed cookies or storage; they were put back."
     try:
         after = await page.evaluate(FINGERPRINT_JS)
     except Exception:
         after = None
     restored = None   # None: the page didn't change; True/False: it changed and was (not) reloaded
     if after != before:
-        # Restore outside the guard: inside it the reload itself would be answered with a 204.
+        # Restore outside the guard, whose window would block the reload.
         restored = await audit.return_to(page_key)   # a labelled state is rebuilt by replaying its steps
         if not restored:   # the cursor stays on the page or state the script ran on, so judgements still land there
             audit.current_url = page_key

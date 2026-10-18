@@ -47,7 +47,8 @@ MAX_NOTES_PER_RUN = 40
 MAX_BLOCK_CHARS = 1500
 LESSONS_PER_BLOCK = 8
 # Agents that get no memory block: the summary writer sees only reviewed data; the page picker only links.
-NO_MEMORY_AGENTS = ("Summary writer", "Page picker")
+# The reviewers judge blind: auditors' notes and lessons would tell them what to conclude.
+NO_MEMORY_AGENTS = ("Summary writer", "Page picker", "Reviewer", "Skip reviewer")
 SPECIALIST_DOMAINS = {"Forms specialist": "forms", "Media specialist": "media", "Navigation specialist": "navigation"}
 CRITERION = re.compile(r"^\d\.\d{1,2}\.\d{1,2}$")
 
@@ -99,6 +100,7 @@ class Memory:
         self._blocks: dict[tuple, str] = {}
         # Notes written per run (remember tool), capped at MAX_NOTES_PER_RUN.
         self._notes: dict[str, int] = {}
+        self._remembered: set[str] = set()   # finding ids remember_run has stored, so a second call adds nothing
 
     @classmethod
     def open(cls, path: str | Path = DEFAULT_PATH) -> Memory:
@@ -109,8 +111,9 @@ class Memory:
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.executescript(SCHEMA)
-        # Run-scoped rows of earlier runs (inline pages) are never recalled again; drop them.
-        conn.execute("DELETE FROM site_memory WHERE host LIKE 'run:%'")
+        # Run-scoped rows of earlier runs (inline pages) are never recalled again; drop them once no run can be using
+        # them (a day old), so runs sharing the store at the same time keep theirs.
+        conn.execute("DELETE FROM site_memory WHERE host LIKE 'run:%' AND created < ?", (time.time() - 86_400,))
         conn.commit()
         return cls(conn, path)
 
@@ -249,8 +252,8 @@ def _lesson_from_overturn(f) -> tuple[str, str] | None:
     if f.review_verdict != "rejected" or f.original_status is None:
         return None
     original = f.original_status.value
-    if f.source == "agent" and original == "pass":
-        kind = "false_pass"
+    if f.source == "agent" and original in ("pass", "not_applicable"):
+        kind = "false_pass" if original == "pass" else "false_na"
     elif f.source == "agent" and original == "fail":
         kind = "false_fail"
     elif original == "fail":
@@ -277,6 +280,9 @@ def remember_run(audit: AuditContext) -> dict:
             memory.remember(host, "profile", page_profile(audit, page_key), page=page)
             counts["profiles"] += 1
         for f in audit.findings_for(page_key):
+            if f.id in memory._remembered:   # a second call (a later review) stores nothing twice
+                continue
+            memory._remembered.add(f.id)
             meta = {"status": f.status.value, "source": f.source, "selectors": f.selectors[:3],
                     "review": f.review_verdict, "state": page_key if page_key != page else None}
             if (lesson := _lesson_from_overturn(f)) is not None:

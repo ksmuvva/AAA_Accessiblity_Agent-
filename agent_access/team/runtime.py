@@ -8,7 +8,8 @@ agent_access/memory.py: what the team knows about this site and lessons from pas
 
 from __future__ import annotations
 
-from agents import RunConfig
+from agents import ModelSettings, RunConfig
+from agents.models.default_models import get_default_model, gpt_5_reasoning_settings_required
 from agents.run_config import CallModelData, ModelInputData
 
 from agent_access.budget import charge_model_call
@@ -64,6 +65,14 @@ def trim_input(data: CallModelData) -> ModelInputData:
         if trimmed != output:
             items[i] = {**items[i], "output": trimmed}
     return ModelInputData(input=items, instructions=with_memory(data))
+
+
+def settings(model, **kwargs) -> ModelSettings:
+    """Every agent's model settings: nothing it sends (page text, screenshots) is stored at OpenAI. Without stored
+    responses, a reasoning model carries its reasoning between calls encrypted instead of by a stored id."""
+    name = (model if isinstance(model, str) else getattr(model, "model", None)) or get_default_model()
+    reasoning = gpt_5_reasoning_settings_required(name) or name.startswith(("o1", "o3", "o4"))
+    return ModelSettings(store=False, response_include=["reasoning.encrypted_content"] if reasoning else None, **kwargs)
 
 
 def run_config(audit: AuditContext, workflow_name: str) -> RunConfig:

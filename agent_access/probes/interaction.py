@@ -8,9 +8,8 @@ the page afterwards. Triggers whose names suggest a destructive action (delete, 
 
 from __future__ import annotations
 
-import re
-
 from agent_access.context import AuditContext
+from agent_access.intent import DESCRIBE_JS, submits
 from agent_access.jsassets import js
 from agent_access.probes import collect, probe
 
@@ -18,7 +17,6 @@ MAX_HOVER_TRIGGERS = 15
 MAX_DISCLOSURE_TRIGGERS = 12
 MAX_POINTER_TARGETS = 6
 SHORTCUT_KEYS = ["s", "/", "?", "j", "k", "n", "p", "f", "m", "g", "c", "1"]
-RISKY_LABEL = re.compile(r"\b(delete|remove|buy|pay|purchase|checkout|order|submit|send|log ?out|sign ?out|unsubscribe|confirm)\b", re.I)
 PAGE_STATE_JS = ("() => ({ scroll: scrollY, hash: location.hash, "
                  "focus: document.activeElement && document.activeElement !== document.body ? document.activeElement.tagName : null })")
 BLUR_JS = "() => { document.activeElement && document.activeElement.blur(); }"
@@ -204,15 +202,23 @@ async def _test_trigger(page, selector: str, name: str) -> dict:
     return result
 
 
+async def _label(page, selector: str) -> str:
+    """What an agent-given target says (an unreadable one is judged by its selector alone)."""
+    try:
+        return await page.locator(selector).first.evaluate(DESCRIBE_JS, timeout=2000)
+    except Exception:
+        return selector
+
+
 @probe("disclosures", retestable=True)
 async def disclosures(audit: AuditContext, targets: list[str] | None = None) -> dict:
     """Open each menu/accordion/dialog from the keyboard (then mouse) and record how it behaves."""
     page = await audit.page()
-    triggers = ([{"selector": s, "name": ""} for s in targets] if targets
+    triggers = ([{"selector": s, "name": await _label(page, s)} for s in targets] if targets
                 else await page.evaluate(js("interaction/disclosure_candidates"), MAX_DISCLOSURE_TRIGGERS))
     results, skipped, unrestored = [], [], None
     for t in triggers[:MAX_DISCLOSURE_TRIGGERS]:
-        if RISKY_LABEL.search(t["name"] or ""):
+        if submits(t["name"]):
             skipped.append(t["name"])
             continue
         async with audit.network_guard():
@@ -257,7 +263,8 @@ async def pointer(audit: AuditContext) -> dict:
     for sel in [t for t in candidates if t not in ("window", "document", "other")][:MAX_POINTER_TARGETS]:
         loc = page.locator(sel).first
         try:
-            if await loc.evaluate("(el) => ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable"):
+            if (await loc.evaluate("(el) => ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable")
+                    or submits(await loc.evaluate(DESCRIBE_JS))):
                 continue
             box = await loc.bounding_box()
         except Exception:

@@ -8,6 +8,7 @@ navigate away; the page is reloaded afterwards. Server-side validation therefore
 from __future__ import annotations
 
 from agent_access.context import AuditContext
+from agent_access.intent import destroys
 from agent_access.jsassets import js
 from agent_access.probes import probe
 from agent_access.probes.interaction import newly_visible, visible_ids
@@ -23,6 +24,9 @@ PERSONAL_FIELD_PATTERN = (
 )
 FILL_INVALID = {"email": "not-an-email", "tel": "abc", "url": "not a url", "text": "x", "search": "x",
                 "password": "x", "textarea": "x"}
+# What a form says it does: its action URL and its buttons' words.
+FORM_INTENT_JS = """(f) => [f.getAttribute('action') || '', ...[...f.querySelectorAll('button, input[type=submit], input[type=image]')]
+  .map(b => b.innerText || b.value || b.getAttribute('aria-label') || '')].join(' | ')"""
 TEXT_FIELDS = "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea"
 
 
@@ -78,6 +82,8 @@ async def submit_test(audit: AuditContext, form: str | None, mode: str) -> dict:
         return {"form": form, "mode": mode, "error": f"No element matches {form!r}."}
     root = page.locator(form) if form else page.locator("body")
     is_form = bool(form) and form != "body" and await root.evaluate("(el) => el.tagName === 'FORM'")
+    if is_form and (danger := destroys(await root.evaluate(FORM_INTENT_JS))):
+        return {"form": form, "mode": mode, "skipped": f"Not submitted: it looks destructive ({danger})."}
     before = await visible_ids(page)
     has_required = await page.evaluate(js("forms/has_required"), form)
     state, new_text = None, []

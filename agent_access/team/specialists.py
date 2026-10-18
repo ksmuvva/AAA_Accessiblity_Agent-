@@ -12,12 +12,12 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from agents import Agent, ModelSettings, RunContextWrapper, function_tool
+from agents import Agent, RunContextWrapper, function_tool
 from agents.models.interface import Model
 
 from agent_access.team.guardrails import apply_guardrails
 from agent_access.team.handoffs import HandoffBrief, brief_section, report_of, run_subagent
-from agent_access.team.runtime import run_config
+from agent_access.team.runtime import run_config, settings
 from agent_access.catalogue.catalogue import LEVEL_ORDER
 from agent_access.agent_tools import INSPECTION_TOOLS
 from agent_access.agent_tools.report_tools import record_finding, record_findings
@@ -144,7 +144,7 @@ def build_specialist(domain: str, model: str | Model | None = None, *, hands_bac
         tools=[open_items_tool(domain), *criterion_tools_for(domain), *retests, *INSPECTION_TOOLS, evaluate_js,
                record_finding, record_findings],
         model=model,
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=settings(model, parallel_tool_calls=False),
         output_type=SpecialistReport,
     ))
 

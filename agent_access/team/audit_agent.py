@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from agents import Agent, ModelSettings, RunContextWrapper
+from agents import Agent, RunContextWrapper
 from agents.models.interface import Model
 
 from agent_access.team.explorer import return_to_page
@@ -22,6 +22,7 @@ from agent_access.agent_tools.verify_tools import evaluate_js
 from agent_access.context import AuditContext, Delegation
 from agent_access.engine import criterion_tools_for
 from agent_access.models import LeadNotes
+from agent_access.team.runtime import settings
 
 # How the lead reaches the specialists: SDK "handoffs" (agent mode) or delegate "tools" (code mode, parallel forks).
 # One source of truth: context.Delegation, the type of AuditContext.delegation and of the CLI flag.
@@ -169,6 +170,6 @@ def build_audit_agent(model: str | Model | None = None, *, delegation: str = "to
         handoffs=[],
         model=model,
         # Browser tools serialise on a lock anyway; sequential calls keep the reasoning easy to follow.
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=settings(model, parallel_tool_calls=False),
         output_type=LeadNotes,
     ))

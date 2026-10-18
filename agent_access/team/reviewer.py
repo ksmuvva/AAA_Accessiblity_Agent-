@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import json
 
-from agents import Agent, ModelSettings, RunContextWrapper, Runner
+from agents import Agent, RunContextWrapper, Runner
 from agents.exceptions import AgentsException
 from agents.models.interface import Model
 from openai import APIError
 
-from agent_access.team.runtime import run_config
+from agent_access.team.runtime import run_config, settings
 from agent_access.agent_tools import INSPECTION_TOOLS
 from agent_access.agent_tools.verify_tools import cited_scripts, evaluate_js
 from agent_access.context import AuditContext
@@ -95,7 +95,7 @@ def build_reviewer(model: str | Model | None = None) -> Agent[AuditContext]:
         instructions=_instructions,
         tools=[*INSPECTION_TOOLS, evaluate_js],
         model=model,
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=settings(model, parallel_tool_calls=False),
         output_type=ReviewResult,
     )
     # Guarded copies of its tools: page text that reads like instructions is removed from their output (G5).
@@ -116,21 +116,27 @@ def _scrubbed(text: str | None) -> str | None:
     return scrub(text)[0] if text else text
 
 
-def is_blind(f: Finding) -> bool:
-    """An agent's pass on a criterion that needs judgement, or any agent not-applicable verdict: the reviewer decides it
-    without the auditor's reasoning, because a reviewer shown that reasoning tends to agree with it (it confirmed 30 of
-    31 false passes in the evals). "Nothing here applies" is the easiest claim to agree with and the hardest to see
-    is wrong, so not-applicable is always blind."""
+def is_blind(f: Finding, audit: AuditContext | None = None) -> bool:
+    """An agent's pass on a criterion that needs judgement, any agent not-applicable verdict, or (given the audit) an
+    agent's pass on a measured criterion whose check didn't come out clean (it didn't run, errored or found more than
+    passes): the reviewer decides it without the auditor's reasoning, because a reviewer shown that reasoning tends to
+    agree with it (it confirmed 30 of 31 false passes in the evals). "Nothing here applies" is the easiest claim to
+    agree with and the hardest to see is wrong, so not-applicable is always blind."""
     if f.source != "agent":
         return False
-    return f.status is Status.NOT_APPLICABLE or (f.status is Status.PASS and REGISTRY[f.wcag_criterion].judgement)
+    if f.status is Status.NOT_APPLICABLE or f.status is Status.PASS and REGISTRY[f.wcag_criterion].judgement:
+        return True
+    if audit is None or f.status is not Status.PASS:
+        return False
+    automated = [x for x in audit.findings_for(f.page_url) if x.wcag_criterion == f.wcag_criterion and x.source != "agent"]
+    return not automated or any(x.status is not Status.PASS for x in automated)
 
 
 def _brief(audit: AuditContext, f: Finding) -> dict:
     rule = audit.catalogue.get(f.wcag_criterion)
     brief = {"finding_id": f.id, "status": f.status.value, "criterion": f"{f.wcag_criterion} {rule.title}",
              "source": f.source, "check": f.check_id, "selectors": f.selectors[:5]}
-    if is_blind(f):
+    if is_blind(f, audit):
         brief["blind"] = True
         brief["question"] = list(rule.manual_checks)
     else:
@@ -145,7 +151,7 @@ def _brief(audit: AuditContext, f: Finding) -> dict:
             "results": [f"{x.status.value}: {x.description}" for x in automated[:6]],
             "details": details if len(details) <= MAX_DETAILS_CHARS else details[:MAX_DETAILS_CHARS] + "...",
         }
-        scripts = [] if is_blind(f) else cited_scripts(audit, f.description, f.evidence)  # blind: no auditor evidence
+        scripts = [] if is_blind(f, audit) else cited_scripts(audit, f.description, f.evidence)  # blind: no auditor evidence
         if scripts:
             # A script's result can carry page text; the brief is model input, so it gets the same scrub as tool output.
             brief["scripts"] = [{"id": x["id"], "function": x["function"], "result": _scrubbed(x["result"]),
@@ -201,14 +207,18 @@ async def review_findings(
     """Review every failure and every agent pass or not-applicable verdict, page by page (all pages, or just `pages`)
     and in batches.
 
-    A batch that errors is marked not_reviewed (its findings keep their status) and the rest still runs.
+    A batch that errors is marked not_reviewed (the report then counts its agent verdicts as needs_review) and the
+    rest still runs.
     Returns the verdict log and any errors.
     """
     reviewer = build_reviewer(model)
     log: list[dict] = []
     errors: list[str] = []
     for page_key in list(audit.pages) if pages is None else pages:
-        items = [f for f in audit.findings_for(page_key) if needs_review_check(f)]
+        # A finding is reviewed once; one whose batch failed (not_reviewed) gets another chance.
+        items = [f for f in audit.findings_for(page_key) if needs_review_check(f) and f.review_verdict in (None, "not_reviewed")]
+        target = {r.wcag_criterion for r in audit.target_rules()}
+        items.sort(key=lambda f: f.wcag_criterion not in target)   # the target's results first, if the budget runs out
         if not items:
             continue
         try:
@@ -223,8 +233,9 @@ async def review_findings(
             continue
         for start in range(0, len(items), MAX_PER_REVIEW):
             batch = items[start:start + MAX_PER_REVIEW]
-            prompt = (f"Page: {page_key}\nResults to verify:\n"
-                      + json.dumps([_brief(audit, f) for f in batch], indent=1))
+            # Descriptions, evidence and details carry page text: the whole brief gets the tool-output scrub.
+            prompt = _scrubbed(f"Page: {page_key}\nResults to verify:\n"
+                               + json.dumps([_brief(audit, f) for f in batch], indent=1))
             try:
                 result = await Runner.run(reviewer, prompt, context=audit, max_turns=10 + 3 * len(batch),
                                           run_config=run_config(audit, "WCAG audit: reviewer"))

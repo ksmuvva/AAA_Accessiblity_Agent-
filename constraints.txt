@@ -1,0 +1,7 @@
+# The versions the test suite passes with: install with  pip install -r requirements.txt -c constraints.txt
+# The code relies on SDK internals (run hooks, tool guardrails) and on Playwright routing behaviour (a 204 answer to a
+# blocked navigation hung clicks in Playwright 1.64), so upgrades go through CI first.
+openai-agents==0.24.0
+openai==3.33.0
+playwright==1.64.0
+pydantic==2.14.1

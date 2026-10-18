@@ -1,5 +1,5 @@
 """Interactive probes reload the page between tests. Over HTTP that reload is a real navigation, which the probes'
-own network_guard would answer with 204 (net::ERR_ABORTED) unless the reload is let through. Inline fixtures hide
+own network_guard would block unless the reload is let through. Inline fixtures hide
 this, because they're restored via about:blank, so these tests serve the page over HTTP.
 """
 

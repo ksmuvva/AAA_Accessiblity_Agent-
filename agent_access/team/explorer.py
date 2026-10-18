@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import json
 
-from agents import Agent, ModelSettings, RunContextWrapper, function_tool
+from agents import Agent, RunContextWrapper, function_tool
 from agents.models.interface import Model
 
 from agent_access.agent_tools import INSPECTION_TOOLS, INTERACTION_TOOLS
 from agent_access.agent_tools.browser_tools import discover_links
 from agent_access.context import AuditContext, base_page_key, call_tool
 from agent_access.team.handoffs import ExplorationReport, ExploreBrief, brief_section, run_subagent
+from agent_access.team.runtime import settings
 
 # States per exploration: each one runs the full automated sweep, which takes a while on real pages.
 MAX_EXPLORED_STATES = 6
@@ -85,6 +86,6 @@ def build_explorer(model: str | Model | None = None) -> Agent[AuditContext]:
         instructions=_instructions,
         tools=[*INSPECTION_TOOLS, *INTERACTION_TOOLS, discover_links],
         model=model,
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=settings(model, parallel_tool_calls=False),
         output_type=ExplorationReport,
     )

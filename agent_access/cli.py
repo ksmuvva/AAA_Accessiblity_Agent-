@@ -5,7 +5,7 @@ Examples:
     python main.py --html-file page.html
     python main.py https://example.com --pages 5
     python main.py https://shop.example/cart --allow-interaction --process "go from cart to the payment step"
-    python main.py https://example.com --reviewer-model gpt-5 --no-trace
+    python main.py https://example.com --reviewer-model gpt-5 --trace
     python main.py https://example.com --level AAA --screen-reader emulated
 """
 
@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import os
 import re
+import signal
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -24,10 +26,11 @@ from dotenv import load_dotenv
 
 from agent_access.budget import Budget
 from agent_access.team import run_audit
-from agent_access.team.orchestrator import TURNS_PER_PAGE
+from agent_access.team.orchestrator import TURNS_PER_PAGE, AuditOutcome, coverage_warnings
 from agent_access.report_writer import review_line, write_reports
 from agent_access.context import AuditContext
 from agent_access.agent_tools.browser_tools import load_html_content
+from agent_access.agent_tools.report_tools import compile_site_report
 from agent_access.probes.screen_reader import nvda_available
 
 
@@ -45,8 +48,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--pages", type=int, default=1, help="audit up to this many same-site pages (default 1)")
     parser.add_argument("--process", help="describe a multi-step process to walk through")
     parser.add_argument("--no-interaction", action="store_true",
-                        help="forbid clicking, typing and key presses; by default the agents explore the site "
-                             "(requests that change data stay blocked unless --allow-submit)")
+                        help="forbid the agents' own clicking, typing and key presses; by default they explore the site "
+                             "(requests that change data stay blocked unless --allow-submit). The automated checks "
+                             "still press keys, open menus and submit forms, with writes blocked and destructive "
+                             "controls skipped")
     parser.add_argument("--allow-interaction", action="store_true", help=argparse.SUPPRESS)  # the old opt-in; now the default
     parser.add_argument("--allow-offsite", action="store_true",
                         help="let free-form interaction follow links to other sites (default: same site only)")
@@ -78,8 +83,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="model for the reviewer (default: $OPENAI_REVIEWER_MODEL; else the SDK's default model "
                              "when --model names another one; else --model); a different model checks the auditors' "
                              "results more independently")
-    parser.add_argument("--no-trace", action="store_true",
-                        help="don't send agent traces (which include page content and screenshots) to OpenAI")
+    parser.add_argument("--trace", action="store_true",
+                        help="send agent traces (which include page content and screenshots) to OpenAI")
+    parser.add_argument("--no-trace", action="store_true", help=argparse.SUPPRESS)  # the default now; kept for old scripts
     parser.add_argument("--headed", action="store_true", help="show the browser window")
     parser.add_argument("--output-dir", type=Path, default=Path("reports"), help="where to write reports")
     parser.add_argument("--max-turns", type=int, default=TURNS_PER_PAGE,
@@ -94,6 +100,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.max_pages = max(args.max_pages, args.pages)
     if args.max_turns < 1:
         parser.error("--max-turns must be at least 1")
+    if any(not prefix.startswith(("http://", "https://")) for prefix in args.allow_submit or ()):
+        parser.error("--allow-submit takes absolute URLs, e.g. https://test.shop.example/api/checkout")
     if args.html_file and args.pages > 1:
         parser.error("--pages only works with a URL")
     if args.pages < 1:
@@ -131,7 +139,7 @@ async def run(args: argparse.Namespace) -> int:
                  + "). Use --no-interaction to forbid that.")
     async with AuditContext(headless=not headed, allow_interaction=not args.no_interaction, output_dir=out_dir,
                             target_level=args.level, screen_reader=args.screen_reader,
-                            allowed_writes=tuple(args.allow_submit or ()), tracing=not args.no_trace) as audit:
+                            allowed_writes=tuple(args.allow_submit or ()), tracing=args.trace) as audit:
         configure_agentic(audit, args, progress)
         preloaded = None
         if args.html_file:
@@ -142,10 +150,20 @@ async def run(args: argparse.Namespace) -> int:
             preloaded = loaded["page_label"]
 
         progress(f"Auditing {preloaded or args.url} ...")
-        outcome = await run_audit(audit, start_url=None if preloaded else args.url, pages=args.pages,
-                                  process=args.process, model=args.model, reviewer_model=args.reviewer_model,
-                                  max_turns=args.max_turns, review=not args.skip_review, progress=progress,
-                                  mode=args.mode)
+        stopped = None
+        task = asyncio.current_task()
+        with contextlib.suppress(NotImplementedError, RuntimeError):  # Windows has no loop signal handlers
+            asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)  # a runner's timeout
+        try:
+            outcome = await run_audit(audit, start_url=None if preloaded else args.url, pages=args.pages,
+                                      process=args.process, model=args.model, reviewer_model=args.reviewer_model,
+                                      max_turns=args.max_turns, review=not args.skip_review, progress=progress,
+                                      mode=args.mode)
+        except (Exception, asyncio.CancelledError) as exc:  # Ctrl+C, a timeout, a crash: keep what was found
+            stopped = f"{type(exc).__name__}: {exc}"
+            outcome = AuditOutcome(report=compile_site_report(audit), tool_runs=audit.tool_runs, engines=audit.engines,
+                                   warnings=coverage_warnings(audit), tripwires=audit.tripwires, scripts=audit.scripts,
+                                   errors=[f"The audit stopped early ({stopped}); this report is incomplete."])
 
     if outcome.report is None:
         print("No page was audited, so there is no report.", file=sys.stderr)
@@ -177,7 +195,7 @@ async def run(args: argparse.Namespace) -> int:
     for e in outcome.errors:
         print(f"Warning: {e}", file=sys.stderr)
     print(f"\nReport: {md_path}\nJSON:   {json_path}")
-    return 0 if not outcome.errors else 1
+    return 4 if stopped else 0 if not outcome.errors else 1   # 4: incomplete, 1: a stage failed, 2: usage
 
 
 def configure_agentic(audit: AuditContext, args: argparse.Namespace, progress) -> None:

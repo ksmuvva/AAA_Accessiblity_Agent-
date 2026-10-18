@@ -381,8 +381,8 @@ def test_chained_states_on_an_http_page_are_rebuilt_and_replays_count_no_new_saf
 
 
 def test_a_browser_error_page_is_never_labelled_as_a_state():
-    async def scenario():
-        async with AuditContext(screen_reader="emulated", tracing=False) as audit:
+    async def scenario():   # allow_offsite: an inline page may not navigate anywhere otherwise
+        async with AuditContext(screen_reader="emulated", tracing=False, allow_offsite=True) as audit:
             await load_html_content(audit, HTML, PAGE)
             await click(audit, "#broken")                            # nothing listens there: Chromium's error page
             result = await label_state(audit, "old-timetable")
@@ -408,7 +408,7 @@ def test_evals_allow_interaction_like_the_cli(monkeypatch):
     monkeypatch.setattr(agent_access.team, "run_audit", fake_run_audit)
     case = {"name": "flow_explore", "file": "cases/flow_explore.html", "expected": {"3.3.2": "fail"}}
     for no_interaction in (False, True):
-        args = Namespace(no_trace=True, measurement="eager", use_lessons=False, mode="code", model=None,
+        args = Namespace(trace=False, measurement="eager", use_lessons=False, mode="code", model=None,
                          reviewer_model=None, skip_review=False, no_interaction=no_interaction)
         asyncio.run(run_case(case, args))
     assert seen == [True, False]

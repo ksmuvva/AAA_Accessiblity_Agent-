@@ -32,10 +32,11 @@ def test_measured_passes_and_failures_keep_the_auditors_reasoning():
     measured_pass = finding("1.4.3", Status.PASS)          # contrast: a measured rule the auditor confirmed
     judged_fail = finding("2.4.4", Status.FAIL)
     measured_fail = finding("1.1.1", Status.FAIL, source="axe")
+    audit.add_findings([finding("1.4.3", Status.PASS, source="custom")])   # its check ran and came out clean
     assert not REGISTRY["1.4.3"].judgement
     for f in (measured_pass, judged_fail, measured_fail):
         brief = _brief(audit, f)
-        assert not is_blind(f) and "blind" not in brief and brief["description"] and brief["evidence"]
+        assert not is_blind(f, audit) and "blind" not in brief and brief["description"] and brief["evidence"]
 
 
 def test_the_reviewer_is_told_how_to_decide_a_blind_pass():

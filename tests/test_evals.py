@@ -1,9 +1,10 @@
 """The eval harness's scoring and cases, without running a model."""
 
 import json
+import re
 from collections import Counter
 
-from evals.run_eval import HERE, metrics, score
+from evals.run_eval import HERE, metrics, score, wilson
 from agent_access.catalogue.catalogue import load_catalogue
 
 
@@ -15,7 +16,10 @@ def test_score_and_metrics():
         "1.1.1": "caught", "2.4.2": "false_pass", "3.1.2": "flagged_for_human", "2.4.6": "false_fail",
         "1.4.1": "correct_pass"}
     m = metrics(Counter(result["totals"]))
-    assert m == {"recall": round(1 / 3, 3), "precision": 0.5, "decided": 0.8, "false_passes": 1}
+    assert {k: m[k] for k in ("recall", "precision", "decided", "false_passes")} == {
+        "recall": round(1 / 3, 3), "precision": 0.5, "decided": 0.8, "false_passes": 1}
+    assert m["recall_ci"] == wilson(1, 3) and m["false_pass_rate_ci"] == wilson(1, 3)
+    assert wilson(8, 14) == [0.326, 0.786] and wilson(0, 14) == [0.0, 0.215]   # 0 of 14 still allows 21.5%
     assert score({"1.2.1": "fail"}, {})["rows"][0]["outcome"] == "flagged_for_human"  # missing = not_tested
 
 
@@ -26,6 +30,17 @@ def test_cases_are_well_formed():
         assert (HERE / case["file"]).is_file(), case["file"]
         for criterion, status in case["expected"].items():
             assert catalogue.get(criterion) is not None and status in ("pass", "fail"), (case["name"], criterion)
+
+
+def test_case_pages_carry_no_answers():
+    """An agent can read the whole page (inspect_element returns its HTML, evaluate_js anything): comments, criterion
+    numbers and verdict words in it would hand over the answers. Explanations live in cases.json notes."""
+    for path in (HERE / "cases").glob("*.html"):
+        html = path.read_text(encoding="utf-8")
+        assert "<!--" not in html and "/*" not in html, path.name
+        assert not re.search(r"\b[1-4]\.[1-5]\.\d{1,2}\b", html), path.name
+        attributes = " ".join(re.findall(r'(?:id|class|name|for|data-[\w-]+)="([^"]*)"', html))
+        assert not re.search(r"\b(?:fail|pass|bad|good|wcag|defect)", attributes, re.I), path.name
 
 
 def test_compare_shows_metric_changes_calls_and_changed_outcomes():
@@ -42,3 +57,8 @@ def test_compare_shows_metric_changes_calls_and_changed_outcomes():
     assert "recall" in lines and "change +0.250" in lines
     assert "judgement_bad: 120 -> 90" in lines
     assert "judgement_bad 1.1.1: flagged_for_human -> caught" in lines and "2.4.2" not in lines.split("Outcomes")[1]
+    a, b = run("aaa111", 0.5, "caught", 1), run("bbb222", 0.75, "caught", 1)
+    a["metrics"]["recall_ci"], b["metrics"]["recall_ci"] = [0.2, 0.6], [0.5, 0.9]
+    b["measurement"] = "eager"
+    lines = "\n".join(compare(a, b))
+    assert "(no detectable change)" in lines and "differ in measurement" in lines
