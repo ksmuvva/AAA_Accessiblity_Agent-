@@ -182,6 +182,15 @@ def test_faded_text_fails_and_unmeasured_text_is_never_passed_over():
                 '<h1 style="color:#fff">Box</h1><div style="background:#fff;opacity:.5"><p>Black text</p></div></main>'
                 '</body></html>', "1.4.3")
     assert not [f for f in found(box, "1.4.3").get(Status.FAIL, []) if f.source != "axe"]
+    # The body's background paints the canvas, which the body's opacity doesn't fade: grey text on black, about 5.3:1.
+    body = judge('<!doctype html><html lang="en"><head><title>Body</title></head><body style="background:#000;color:#fff;'
+                 'opacity:.5"><main><h1>Body</h1><p>White text</p></main></body></html>', "1.4.3")
+    assert not [f for f in found(body, "1.4.3").get(Status.FAIL, []) if f.source != "axe"]
+    # A colour format the composite can't read (oklch) is never guessed into a 1:1 failure.
+    oklch = judge('<!doctype html><html lang="en"><head><title>Oklch</title></head><body style="background:#000"><main>'
+                  '<h1 style="color:#fff">Oklch</h1><p style="color:oklch(1 0 0);opacity:.9">Light text</p></main></body></html>',
+                  "1.4.3")
+    assert not [f for f in found(oklch, "1.4.3").get(Status.FAIL, []) if f.source != "axe"]
     from test_tune_operable import _rule_on
     over_image = [{"selector": "#hero h2", "text": "Summer sale", "why": "over an image or gradient, past the sampling limit"}]
     for criterion in ("1.4.3", "1.4.6"):
