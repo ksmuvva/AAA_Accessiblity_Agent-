@@ -491,8 +491,13 @@ def check_reflow(ctx: Ctx) -> None:
     r = ctx.data("reflow")
     if not r:
         return
+    if clipped := r.get("clipped"):
+        ctx.review(f"At 320px wide, {len(clipped)} text element(s) are cut off by a container that hides its overflow; "
+                   "check the text is still available another way.", [c["selector"] for c in clipped],
+                   "; ".join(f"'{c['text']}'" for c in clipped[:5]))
     if not r["horizontal_scroll"]:
-        ctx.passed("No horizontal scrolling at 320 CSS px width.")
+        if not clipped:
+            ctx.passed("No horizontal scrolling at 320 CSS px width, and no text cut off by a container.")
         return
     real = [o for o in r["offenders"] if not o["likely_exception"]]
     culprits = real or r["offenders"]

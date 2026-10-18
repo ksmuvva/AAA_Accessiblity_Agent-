@@ -61,3 +61,12 @@ def test_a_press_and_move_drag_is_never_not_applicable():
                 "document.addEventListener('pointermove', (e) => { if (down) board.style.left = e.clientX + 'px'; });"
                 "</script></main>")
     assert set(found(judge(html, "2.5.7"), "2.5.7")) == {Status.NEEDS_REVIEW}
+
+
+def test_text_cut_off_by_a_container_at_320px_is_never_a_pass():
+    html = page('<main><h1>Plans</h1><div style="overflow:hidden"><div style="display:flex">'
+                '<p style="flex:0 0 300px">Basic plan</p><p style="flex:0 0 300px">Premium plan, 9 a month</p></div></div>'
+                '<p class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden"><span>Skip</span></p></main>')
+    reflow = found(judge(html, "1.4.10"), "1.4.10")
+    assert set(reflow) == {Status.NEEDS_REVIEW} and "Premium plan" in reflow[Status.NEEDS_REVIEW][0].evidence
+    assert "Skip" not in reflow[Status.NEEDS_REVIEW][0].evidence

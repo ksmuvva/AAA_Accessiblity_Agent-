@@ -208,6 +208,11 @@ async def run_lead_on(audit: AuditContext, state: PlanState, page_key: str, focu
         return {"error": "The working budget is spent; no new agent work. Call review_pages, write_summary, then finish."}
     if page_key not in audit.pages:
         return {"error": f"{page_key!r} is not an opened page. Use open_page first."}
+    # The first page's review is in the base reserve; each later page sets its own aside before it starts.
+    if not state.lead_runs.get(page_key) and state.lead_runs and audit.budget is not None and not audit.budget.admit_page():
+        state.exhausted.add(page_key)
+        return {"error": f"{page_key} was not started: the budget left can't also pay for reviewing it. Call "
+                         "review_pages, write_summary, then finish."}
     notes: list[str] = []
     runs, previous_open = 0, None
     for attempt in range(LEAD_RUNS_PER_PAGE):
