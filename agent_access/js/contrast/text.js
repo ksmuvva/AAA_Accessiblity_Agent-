@@ -30,7 +30,7 @@ for (const el of [...document.querySelectorAll('body *'), ...shadowAll('*')].sli
   let opacity = 1;   // a faded ancestor fades the text too
   for (let e = el; e; e = up(e)) opacity *= parseFloat(getComputedStyle(e).opacity);
   // Faded over an image: no composite, so the pixels are sampled instead (they show the fading).
-  const [color, background] = opacity < 1 ? composite(el, s.color) || [s.color, null] : [s.color, effectiveBg(el)];
+  const [color, background] = opacity < 1 ? composite(el, s.color) || [rgbaText(s.color), null] : [rgbaText(s.color), effectiveBg(el)];
   out.push({
     selector: cssPath(el),
     text: (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60),

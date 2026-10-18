@@ -74,8 +74,8 @@ const textLinks = [...document.querySelectorAll('p a[href], li a[href], td a[hre
   return !(/underline|overline|line-through/.test(sa.textDecorationLine) || (parseFloat(sa.borderBottomWidth) > 0 && sa.borderBottomStyle !== 'none')
     || sa.fontWeight !== sp.fontWeight || sa.fontStyle !== sp.fontStyle || sa.backgroundColor !== sp.backgroundColor
     || (parseFloat(sa.outlineWidth) > 0 && sa.outlineStyle !== 'none'));
-}).slice(0, 15).map((a) => ({ selector: cssPath(a), text: text(a).slice(0, 60), link_color: getComputedStyle(a).color,
-  text_color: getComputedStyle(a.parentElement).color }));
+}).slice(0, 15).map((a) => ({ selector: cssPath(a), text: text(a).slice(0, 60), link_color: rgbaText(getComputedStyle(a).color),
+  text_color: rgbaText(getComputedStyle(a.parentElement).color) }));
 return {
   tables, spaced_letters: spacedLetters, fake_lists: fakeLists, pre_columns: preColumns, undecorated_text_links: textLinks,
   title: document.title,

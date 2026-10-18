@@ -233,3 +233,14 @@ def test_only_the_page_or_its_main_content_rotating_locks_the_orientation():
     body = '<body><span id="arrow">&#8594;</span><main><h1>Game</h1><p>' + "Play in any orientation. " * 20 + '</p></main></body></html>'
     assert found(judge(head.format("main") + body, "1.3.4"), "1.3.4").get(Status.FAIL)
     assert not found(judge(head.format("#arrow") + body, "1.3.4"), "1.3.4").get(Status.FAIL)   # a decorative arrow
+
+
+def test_modern_colour_formats_are_measured():
+    # Tailwind v4 computes colours to oklch: they must be measured like rgb(), not skipped.
+    html = ('<!doctype html><html lang="en"><head><title>Shop</title></head><body><main><h1>Shop</h1>'
+            '<p style="color:oklch(0.7 0 0)">Grey oklch text</p><p style="color:color(display-p3 0.6 0.6 0.6)">P3 text</p>'
+            '<label for="q">Search</label><input id="q" style="border:2px solid oklch(0.85 0 0)"></main></body></html>')
+    audit = judge(html, "1.4.3", "1.4.11")
+    low = {f.description for f in found(audit, "1.4.3").get(Status.FAIL, []) if f.source != "axe"}
+    assert low == {"2 text element(s) are below the AA contrast ratio."}
+    assert found(audit, "1.4.11").get(Status.FAIL)   # the light oklch border, 1.57:1
