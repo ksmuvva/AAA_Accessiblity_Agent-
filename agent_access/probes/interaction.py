@@ -10,9 +10,10 @@ a destructive action (delete, buy, submit...) are skipped.
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import urlparse
 
-from agent_access.context import SAFE_METHODS, AuditContext, base_page_key
-from agent_access.intent import DESCRIBE_JS, submits
+from agent_access.context import ACTING_TYPES, SAFE_METHODS, SAFETY_JS, AuditContext, base_page_key
+from agent_access.intent import DESCRIBE_JS, destroys, submits
 from agent_access.jsassets import js
 from agent_access.probes import collect, probe
 
@@ -346,24 +347,33 @@ async def skip_link(audit: AuditContext) -> dict:
 IDLE_MINUTES = [*range(5, 61, 5), 20 * 60]  # every 5 minutes for an hour, then 20 hours (WCAG's 20-hour exception)
 
 
-async def _cut(route) -> None:
-    await (route.continue_() if route.request.method in SAFE_METHODS else route.abort())
+async def _cut(route, moves: list) -> None:
+    """Only GETs go out, and none that signs out or deletes (the cookies are the run's, as the main guard decides);
+    a blocked navigation goes into `moves` as where the page tried to go."""
+    r = route.request
+    if r.method in SAFE_METHODS and not (r.resource_type in ACTING_TYPES and destroys(urlparse(r.url).path)):
+        return await route.continue_()
+    if r.is_navigation_request():
+        moves.append(f"{r.url} (blocked)")
+    await route.abort("aborted")
 
 
 @probe("timeouts")
 async def timeouts(audit: AuditContext) -> dict:
     """The page left idle on a faked clock: each new time-limit warning (with any control to extend it), dialog and
     navigation, at the idle time it happened. A clock can't be uninstalled, so this loads the page again in a browser
-    context of its own, with the run's cookies, where only GET requests go out and WebSockets reach nothing. A
+    context of its own, with the run's cookies and safety script, where only GET requests that don't sign out or
+    delete go out and WebSockets reach nothing. A
     jump fires each due timer once, hence the 5-minute steps. Server-side session expiry can't be faked."""
     main = await audit.page()
     context = await main.context.browser.new_context(viewport=main.viewport_size, service_workers="block",
                                                      storage_state=await main.context.storage_state(indexed_db=True))
     try:
-        await context.route("**/*", _cut)
+        dialogs, moves = [], []
+        await context.add_init_script(SAFETY_JS)
+        await context.route("**/*", lambda route: _cut(route, moves))
         await context.route_web_socket("**/*", lambda ws: None)
         page = await context.new_page()
-        dialogs, moves = [], []
         page.on("dialog", lambda d: (dialogs.append(d.message[:120]), asyncio.ensure_future(d.dismiss())))
         page.on("framenavigated", lambda f: moves.append(f.url) if f == page.main_frame else None)
         await page.clock.install()

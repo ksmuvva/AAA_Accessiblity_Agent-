@@ -68,6 +68,9 @@ def test_a_faked_clock_shows_what_an_idle_page_does():
     assert evidence.startswith("after 25 min idle: text 'Your session will expire in 5 minutes.'; controls Stay signed in; "
                                "after 30 min idle: dialog 'Signed out'; went to about:blank#out")
     assert "went to" in found(audit, "2.2.5")[Status.NEEDS_REVIEW][0].evidence
+    # An idle sign-out navigation is blocked (the cookies are the run's) and still reported.
+    logout = judge(page.format("<script>setTimeout(() => { location.href = 'http://127.0.0.1:9/logout'; }, 10 * 60000)</script>"), "2.2.1")
+    assert "after 10 min idle: went to http://127.0.0.1:9/logout (blocked)" in found(logout, "2.2.1")[Status.NEEDS_REVIEW][0].evidence
     quiet = judge(page.format(""), "2.2.1")
     assert "nothing happened in 20 hours" in found(quiet, "2.2.1")[Status.PASS][0].description
 
