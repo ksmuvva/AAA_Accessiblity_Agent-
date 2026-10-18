@@ -53,6 +53,7 @@ def test_saturated_red_flashes_fail_and_are_measured_by_wcags_formula():
     a grey of equal luminance is no general flash, so before this only the luminance test ran and it passed silently."""
     from agent_access.probes.layout import _flash_count, red_value
     assert red_value((255, 0, 0)) == (320.0, True) and red_value((128, 128, 128)) == (0.0, False)
+    assert red_value((255, 100, 0))[1]   # saturated once linearised (0.887), as WCAG computes it (not 0.72 raw)
     frames = [(255, 0, 0), (128, 128, 128)] * 5
     values, sat = zip(*map(red_value, frames))
     assert _flash_count(values, lambda j, a, b: abs(b - a) > 20 and (sat[j] or sat[j + 1])) == 4.5

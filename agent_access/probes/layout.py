@@ -130,8 +130,8 @@ async def flashing(audit: AuditContext) -> dict:
 
 def red_value(rgb: tuple[int, int, int]) -> tuple[float, bool]:
     """WCAG's red flash measure for one colour: ((R-G-B) x 320, negative as 0) and whether it is saturated red
-    (R / (R+G+B) >= 0.8), with R, G, B in 0..1."""
-    r, g, b = (c / 255 for c in rgb)
+    (R / (R+G+B) >= 0.8), with R, G, B linearised as for relative luminance."""
+    r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in (v / 255 for v in rgb))
     return max(0.0, (r - g - b) * 320), r + g + b > 0 and r / (r + g + b) >= 0.8
 
 
