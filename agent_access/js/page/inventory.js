@@ -99,7 +99,8 @@ return {
   open_dialogs: [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open], [aria-modal="true"]')].filter(isVisible).map(cssPath),
   meta_refresh: document.querySelector('meta[http-equiv="refresh" i]')?.getAttribute('content') || null,
   password_fields: [...document.querySelectorAll('input[type="password"]')].map((el) => ({ selector: cssPath(el), autocomplete: el.getAttribute('autocomplete'),
-    blocks_paste: (el.getAttribute('onpaste') || '').includes('return false') })),
+    // A paste handler that cancels the event (onpaste="return false" or a script listener) blocks pasting.
+    blocks_paste: !el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true })) })),
   captcha: !!document.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], .g-recaptcha, .h-captcha, [class*="captcha" i], img[alt*="captcha" i]'),
   skip_link: (() => { const a = [...document.querySelectorAll('a[href^="#"]')].slice(0, 5).find((x) => /skip|main content|jump to/i.test(text(x)));
     return a ? { selector: cssPath(a), text: text(a), target: a.getAttribute('href') } : null; })(),
