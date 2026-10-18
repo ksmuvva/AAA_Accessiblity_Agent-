@@ -118,6 +118,9 @@ class ReviewVerdict(BaseModel):
     finding_id: str
     verdict: Literal["confirmed", "rejected", "uncertain"]
     reason: str = Field(description="What you checked and what you saw.")
+    defect_seen: bool | None = Field(default=None, description=(
+        "Whether you saw a failure of this criterion on the page, whatever the item's status: a pass you confirm has "
+        "false, a fail you confirm has true. null if you couldn't check."))
 
 
 class ReviewResult(BaseModel):

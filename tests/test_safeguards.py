@@ -283,3 +283,23 @@ def test_a_rule_that_raises_still_records_a_finding():
     assert result["error"] == "KeyError: 'stops'" and result["result"] == {"needs_review": 1}
     assert "could not run" in result["findings"][0]["description"] and "KeyError" in result["findings"][0]["description"]
     assert view["status"] == "needs_review" and "KeyError" in view["automated_check_error"]
+
+
+def test_a_verdict_that_contradicts_what_the_reviewer_saw_counts_as_uncertain():
+    """The eval's judgement_bad 1.4.1: the blind reviewer "confirmed" an agent pass while its own note said colour
+    alone marks the required fields. Its defect_seen now decides: that pass goes to a human, not into the report."""
+    agent_pass, measured_fail = finding(Status.PASS, "agent", "1.4.1"), finding(Status.FAIL, "custom", "2.4.2")
+    agent_fail, not_applicable = finding(Status.FAIL, "agent"), finding(Status.NOT_APPLICABLE, "agent", "1.2.2")
+    seen = [(agent_pass, "confirmed", True), (measured_fail, "rejected", True), (agent_fail, "confirmed", False),
+            (not_applicable, "confirmed", False)]
+    apply_verdicts([f for f, _, _ in seen], ReviewResult(verdicts=[
+        ReviewVerdict(finding_id=f.id, verdict=v, reason="Colour alone marks required fields.", defect_seen=d) for f, v, d in seen]))
+    assert agent_pass.status is Status.NEEDS_REVIEW and agent_pass.review_verdict == "uncertain"
+    assert "contradicted" in agent_pass.review_note
+    assert measured_fail.status is Status.FAIL     # a measured failure whose defect the reviewer saw stays a failure
+    assert agent_fail.status is Status.NEEDS_REVIEW
+    assert not_applicable.status is Status.NOT_APPLICABLE and not_applicable.review_verdict == "confirmed"
+    consistent = finding(Status.PASS, "agent")
+    apply_verdicts([consistent], ReviewResult(verdicts=[
+        ReviewVerdict(finding_id=consistent.id, verdict="confirmed", reason="Text labels.", defect_seen=False)]))
+    assert consistent.status is Status.PASS and consistent.review_verdict == "confirmed"
