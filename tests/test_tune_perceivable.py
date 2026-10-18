@@ -177,6 +177,11 @@ def test_faded_text_fails_and_unmeasured_text_is_never_passed_over():
     faded = judge('<!doctype html><html lang="en"><head><title>Faded</title></head><body><main><h1>Faded</h1>'
                   '<div style="opacity:0.3"><p>Faded text</p></div></main></body></html>', "1.4.3")
     assert "1 text element(s) are below the AA contrast ratio." in descriptions(faded, "1.4.3", Status.FAIL)
+    # Opacity fades the box's white background too: black text on it over a black page is about 5.3:1, a pass.
+    box = judge('<!doctype html><html lang="en"><head><title>Box</title></head><body style="background:#000"><main>'
+                '<h1 style="color:#fff">Box</h1><div style="background:#fff;opacity:.5"><p>Black text</p></div></main>'
+                '</body></html>', "1.4.3")
+    assert not [f for f in found(box, "1.4.3").get(Status.FAIL, []) if f.source != "axe"]
     from test_tune_operable import _rule_on
     over_image = [{"selector": "#hero h2", "text": "Summer sale", "why": "over an image or gradient, past the sampling limit"}]
     for criterion in ("1.4.3", "1.4.6"):

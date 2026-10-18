@@ -1,7 +1,7 @@
 // @body
 const PERSONAL = new RegExp(arg, 'i');
 const fieldLabel = (el) => (el.labels && el.labels[0] && el.labels[0].innerText.trim())
-  || el.getAttribute('aria-label') || idrefText(el.getAttribute('aria-labelledby')) || (el.getAttribute('title') || '').trim();
+  || el.getAttribute('aria-label') || idrefText(el.getAttribute('aria-labelledby'), el) || (el.getAttribute('title') || '').trim();
 const forms = [...document.querySelectorAll('form')];
 // Controls outside any <form> still form a "form" for auditing purposes.
 const orphans = [...document.querySelectorAll('input, select, textarea'), ...shadowAll('input, select, textarea')]
@@ -25,7 +25,7 @@ return groups.slice(0, 10).map((g, i) => {
         selector: cssPath(el), tag: el.tagName.toLowerCase(), type: el.type, name: el.name || null,
         label: fieldLabel(el), placeholder: el.placeholder || null,
         visible_label: !!(el.labels && el.labels[0] && isVisible(el.labels[0])) || (el.getAttribute('aria-labelledby') || '')
-          .split(/\s+/).some((id) => { const t = id && document.getElementById(id); return t && isVisible(t) && t.innerText.trim(); }),
+          .split(/\s+/).some((id) => { const t = id && el.getRootNode().getElementById(id); return t && isVisible(t) && t.innerText.trim(); }),
         required: el.required || el.getAttribute('aria-required') === 'true',
         autocomplete: el.getAttribute('autocomplete'),
         likely_personal_without_autocomplete: PERSONAL.test(key) && !el.getAttribute('autocomplete'),
