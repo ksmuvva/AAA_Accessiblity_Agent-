@@ -40,12 +40,24 @@ const linkName = (a) => (a.getAttribute('aria-label')
   || [...a.querySelectorAll('img[alt], input[type="image"][alt], [role="img"][aria-label], svg title')]
     .map((i) => i.getAttribute('alt') || i.getAttribute('aria-label') || i.textContent || '').join(' ').trim()
   || a.getAttribute('title') || '').toString().trim().replace(/\s+/g, ' ').slice(0, 80);
+// Any other colour format (oklch, lab, display-p3: Tailwind v4 computes to oklch) is drawn on a 1px canvas,
+// which converts it to sRGB as the screen shows it.
+const __pixel = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
 const parseRgb = (c) => {
-  const m = (c || '').match(/rgba?\(([^)]+)\)/);
-  if (!m) return null;
-  const p = m[1].split(/[ ,\/]+/).filter(Boolean).map(Number);
-  return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+  const m = (c || '').match(/^rgba?\(([^)]+)\)/);
+  if (m) {
+    const p = m[1].split(/[ ,\/]+/).filter(Boolean).map(Number);
+    return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+  }
+  if (!c || !CSS.supports('color', c)) return null;
+  __pixel.clearRect(0, 0, 1, 1);
+  __pixel.fillStyle = c;
+  __pixel.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = __pixel.getImageData(0, 0, 1, 1).data;
+  return { r, g, b, a: a / 255 };
 };
+// A colour as rgba() text, the only format the Python side reads; null for none.
+const rgbaText = (c) => { const p = parseRgb(c); return p && `rgba(${p.r}, ${p.g}, ${p.b}, ${p.a})`; };
 // The colour actually behind an element: background colours composited up the tree over white.
 // Returns null when an image or gradient is involved (the caller samples pixels instead).
 const effectiveBg = (el) => {

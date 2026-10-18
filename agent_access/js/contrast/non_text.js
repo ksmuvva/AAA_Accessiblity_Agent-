@@ -6,8 +6,8 @@ for (const el of [...document.querySelectorAll('input:not([type=hidden]):not([ty
   const around = effectiveBg(el.parentElement || el);
   const width = parseFloat(s.borderTopWidth) || parseFloat(s.borderBottomWidth) || 0;
   out.push({ kind: 'control boundary', selector: cssPath(el), name: label(el), around,
-    border: width > 0 && s.borderStyle !== 'none' ? (parseFloat(s.borderBottomWidth) >= parseFloat(s.borderTopWidth) ? s.borderBottomColor : s.borderTopColor) : null,
-    fill: s.backgroundColor });
+    border: width > 0 && s.borderStyle !== 'none' ? rgbaText(parseFloat(s.borderBottomWidth) >= parseFloat(s.borderTopWidth) ? s.borderBottomColor : s.borderTopColor) : null,
+    fill: rgbaText(s.backgroundColor) });
 }
 // Icons that carry meaning: SVGs inside links/buttons without text, or role=img.
 // An aria-hidden icon is still the only visible content of a text-less control (the usual icon-button pattern), so it counts.
@@ -20,6 +20,6 @@ for (const svg of [...document.querySelectorAll('svg')].filter(isVisible).slice(
   const s = getComputedStyle(shape);
   const paint = s.fill && s.fill !== 'none' ? s.fill : s.stroke;
   out.push({ kind: 'icon', selector: cssPath(control || svg), name: control ? label(control) : (svg.getAttribute('aria-label') || ''),
-    around: effectiveBg(svg), color: paint && paint.startsWith('rgb') ? paint : getComputedStyle(svg).color });
+    around: effectiveBg(svg), color: rgbaText(paint) || rgbaText(getComputedStyle(svg).color) });
 }
 return out;
