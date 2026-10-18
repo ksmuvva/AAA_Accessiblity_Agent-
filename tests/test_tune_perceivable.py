@@ -186,6 +186,10 @@ def test_faded_text_fails_and_unmeasured_text_is_never_passed_over():
     body = judge('<!doctype html><html lang="en"><head><title>Body</title></head><body style="background:#000;color:#fff;'
                  'opacity:.5"><main><h1>Body</h1><p>White text</p></main></body></html>', "1.4.3")
     assert not [f for f in found(body, "1.4.3").get(Status.FAIL, []) if f.source != "axe"]
+    # Containment stops that propagation: the black then fades with the body over white, and white text on it fails.
+    contained = judge('<!doctype html><html lang="en"><head><title>Body</title></head><body style="contain:paint;'
+                      'background:#000;color:#fff;opacity:.5"><main><h1>Body</h1><p>White text</p></main></body></html>', "1.4.3")
+    assert [f for f in found(contained, "1.4.3").get(Status.FAIL, []) if f.source != "axe"]
     # A colour format the composite can't read (oklch) is never guessed into a 1:1 failure.
     oklch = judge('<!doctype html><html lang="en"><head><title>Oklch</title></head><body style="background:#000"><main>'
                   '<h1 style="color:#fff">Oklch</h1><p style="color:oklch(1 0 0);opacity:.9">Light text</p></main></body></html>',

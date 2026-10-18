@@ -8,8 +8,8 @@ const composite = (el, textColor) => {
   if (!parseRgb(textColor) || chain.some((s) => s.backgroundImage !== 'none' || !parseRgb(s.backgroundColor))) return null;
   const over = (css, b) => { const c = parseRgb(css); return [c.r, c.g, c.b].map((v, i) => v * c.a + b[i] * (1 - c.a)); };
   // The root's background, or the body's when the root has none, paints the canvas: under everything, and not faded
-  // by html or body opacity.
-  const canvas = parseRgb(chain[0].backgroundColor).a === 0 ? 1 : 0;
+  // by html or body opacity. CSS containment (any value) on html or body stops the body's propagating, in Chromium.
+  const canvas = parseRgb(chain[0].backgroundColor).a === 0 && chain.slice(0, 2).every((s) => s.contain === 'none') ? 1 : 0;
   const paint = (k, b, last) => {
     if (k === chain.length) return last(b);
     const inner = paint(k + 1, k === canvas ? b : over(chain[k].backgroundColor, b), last), o = parseFloat(chain[k].opacity);
