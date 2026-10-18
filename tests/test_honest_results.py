@@ -22,6 +22,7 @@ DECIDED = (Status.PASS, Status.NOT_APPLICABLE)
 def judged(page: str = "page") -> AuditContext:
     audit = AuditContext()
     audit.current_url = page
+    audit.observations[page] = {"disclosures": ProbeResult({"results": []})}
     add_manual_finding(audit, "2.4.2", "pass", "Descriptive title.", "Title is 'Contact us - Shop'.")
     add_manual_finding(audit, "1.2.2", "not_applicable", "No media.", "No video, audio or embeds in the page or tree.")
     return audit

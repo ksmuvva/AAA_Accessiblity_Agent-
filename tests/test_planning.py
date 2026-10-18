@@ -8,7 +8,10 @@ from agent_access.context import AuditContext
 from agent_access.models import Finding, Judgement, Status
 from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
 from agent_access.agent_tools.report_tools import add_manual_finding, add_manual_findings, compile_report
+from agent_access.probes import ProbeResult
 from agent_access.rules import REGISTRY
+
+NOTHING_REVEALED = ProbeResult({"results": []})  # the disclosures probe ran: no control revealed content
 
 
 def automated(criterion: str, status: Status) -> Finding:
@@ -24,13 +27,35 @@ def swept(level: str = "AA") -> AuditContext:
     for tool in REGISTRY.values():
         audit.mark_attempted(tool.name)
         audit.add_findings([automated(tool.criterion, Status.PASS)])
+    audit.observations["page"] = {"disclosures": NOTHING_REVEALED}
     return audit
 
 
 def fresh_audit(level: str = "AA") -> AuditContext:
     audit = AuditContext(target_level=level)
     audit.set_current("page")
+    audit.observations["page"] = {"disclosures": NOTHING_REVEALED}
     return audit
+
+
+def test_not_applicable_waits_until_the_controls_that_reveal_content_are_opened():
+    """The checks saw the page as loaded: a form built when a button is pressed was never measured (the eval's
+    flow_explore false passes). An agent's not-applicable needs that content opened in a labelled state first."""
+    audit = AuditContext()
+    audit.set_current("page")
+    unmeasured = add_manual_finding(audit, "3.3.2", "not_applicable", "No form.", "list_forms returned [].")
+    assert 'run_checks(["2.1.1"])' in unmeasured["error"]
+    audit.observations["page"] = {"disclosures": ProbeResult({"results": [
+        {"trigger": "#open-settings", "name": "Open settings", "opened_by": "Enter", "content": "Settings Language Save",
+         "aria_expanded": {"before": "false", "after": "true"}, "is_dialog": False},
+        {"trigger": "#alerts", "name": "Off", "opened_by": None, "content": None}]})}
+    refused = add_manual_finding(audit, "3.3.2", "not_applicable", "No form.", "list_forms returned [].")
+    assert "'Open settings' (#open-settings) shows 'Settings Language Save'" in refused["error"]
+    assert "#alerts" not in refused["error"] and not audit.findings
+    assert add_manual_finding(audit, "3.3.2", "needs_review", "Form behind a button.", "It reveals a form.")["recorded"]
+    audit.set_current("page [settings]")   # the agent opened the panel and labelled that state
+    audit.set_current("page")
+    assert add_manual_finding(audit, "1.2.2", "not_applicable", "No media.", "No video or audio, opened or not.")["recorded"]
 
 
 def test_open_items_report_state_not_a_route():

@@ -7,9 +7,10 @@ from typing import Literal
 
 from agents import RunContextWrapper, function_tool
 
-from agent_access.context import AuditContext, no_page
+from agent_access.context import AuditContext, base_page_key, is_state_key, no_page
 from agent_access.models import AuditReport, CriterionResult, Finding, Judgement, SiteReport, Status
 from agent_access.rules import REGISTRY
+from agent_access.rules.common import disclosure_groups
 
 # Worst status first; used to combine per-page results into a site-wide result.
 SEVERITY = [Status.FAIL, Status.NEEDS_REVIEW, Status.NOT_TESTED, Status.PASS, Status.NOT_APPLICABLE]
@@ -37,6 +38,10 @@ def add_manual_finding(
     if new_status is Status.PASS and not tool.judgement and tool.name not in audit.attempted_on(audit.current_url):
         return {"error": f"{rule.wcag_criterion} is measured, and its check hasn't run on this page state: run_checks "
                          "it first, then confirm what it measured."}
+    if new_status is Status.NOT_APPLICABLE and (unopened := _unopened_controls(audit)):
+        return {"error": f"{rule.wcag_criterion} can't be not applicable yet: {unopened} Open them (click_element, then "
+                         "label_page_state) and judge what they reveal; if you can't, leave the criterion open for the "
+                         "lead or record needs_review."}
     earlier = [f for f in audit.findings if f.page_url == audit.current_url and f.source == "agent"
                and f.wcag_criterion == rule.wcag_criterion]
     earlier_fails = [f for f in earlier if Status.FAIL in (f.status, f.original_status)]
@@ -62,6 +67,21 @@ def add_manual_finding(
     audit.add_findings([finding])
     return {"recorded": finding.wcag_criterion, "status": finding.status.value, "page_url": audit.current_url,
             **({"replaced_earlier_judgements": len(superseded)} if superseded else {})}
+
+
+def _unopened_controls(audit: AuditContext) -> str | None:
+    """Why the page's content-revealing controls block a not-applicable: the checks only saw the page as loaded.
+    None once a state of this page has been labelled (an agent opened something there and judged it)."""
+    page = base_page_key(audit.current_url)
+    if any(is_state_key(k) and base_page_key(k) == page for k in audit.pages):
+        return None
+    seen = audit.observations.get(page, {}).get("disclosures")
+    if seen is None:
+        return 'what this page\'s menus, accordions and dialogs reveal hasn\'t been measured (run_checks(["2.1.1"]) does).'
+    revealing = [r for r in disclosure_groups(seen.data.get("results", []))["opened"] if r.get("content")]
+    return ("these controls reveal content no check has judged: "
+            + "; ".join(f"{r['name']!r} ({r['trigger']}) shows {r['content'][:80]!r}" for r in revealing[:5]) + "."
+            if revealing else None)
 
 
 def _criterion_status(findings: list[Finding]) -> tuple[Status, str]:
