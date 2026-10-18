@@ -208,3 +208,10 @@ def test_a_pop_up_shown_after_a_delay_is_still_tested():
 <script>let t; b.addEventListener('mouseenter', () => { t = setTimeout(() => { tip.hidden = false; }, 600); });
 b.addEventListener('mouseleave', () => { clearTimeout(t); });</script></main></body></html>"""
     assert found(judge(html, "1.4.13"), "1.4.13").get(Status.FAIL)   # not dismissible with Escape
+
+
+def test_only_the_page_or_its_main_content_rotating_locks_the_orientation():
+    head = '<!doctype html><html lang="en"><head><title>Game</title><style>@media (orientation: portrait) {{ {} {{ transform: rotate(90deg); }} }}</style></head>'
+    body = '<body><span id="arrow">&#8594;</span><main><h1>Game</h1><p>' + "Play in any orientation. " * 20 + '</p></main></body></html>'
+    assert found(judge(head.format("main") + body, "1.3.4"), "1.3.4").get(Status.FAIL)
+    assert not found(judge(head.format("#arrow") + body, "1.3.4"), "1.3.4").get(Status.FAIL)   # a decorative arrow
