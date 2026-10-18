@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Literal
 
 from agents import RunContextWrapper, function_tool
@@ -34,6 +35,7 @@ MAX_LIST_ITEMS = 25
 MAX_STRING_CHARS = 500
 MAX_RESULT_CHARS = 12_000
 MAX_JS_RESULT_CHARS = 6_000
+MAX_LOGGED_RESULT_CHARS = 2_000  # what the script log keeps for the report and the reviewer
 JS_TIMEOUT_S = 5
 MAX_VERIFIED_SELECTORS = 5
 MAX_VERIFIED_FINDINGS = 10
@@ -183,15 +185,35 @@ async def evaluate_script(audit: AuditContext, function: str) -> dict:
         after = await page.evaluate(FINGERPRINT_JS)
     except Exception:
         after = None
+    restored = None   # None: the page didn't change; True/False: it changed and was (not) reloaded
     if after != before:
         # Restore outside the guard: inside it the reload itself would be answered with a 204.
-        restored = await audit.restore_page(page_key) if audit.can_restore(page_key) else False
-        if not restored:
+        restored = await audit.return_to(page_key)   # a labelled state is rebuilt by replaying its steps
+        if not restored:   # the cursor stays on the page or state the script ran on, so judgements still land there
+            audit.current_url = page_key
             audit.dirty.add(page_key)
         result["page_changed"] = ("The script changed the page; it was reloaded to its tested state." if restored else
                                   "The script changed the page and it could not be reloaded; results now describe a "
                                   "changed page.")
+    script_id = f"S{len(audit.scripts) + 1}"
+    audit.scripts.append({"id": script_id, "page_url": page_key, "function": function,
+                          "result": json.dumps(result.get("result"), default=str)[:MAX_LOGGED_RESULT_CHARS],
+                          "error": result.get("error"),
+                          "page_changed": None if restored is None else ("reloaded" if restored else "left changed")})
+    result["script_id"] = script_id
+    result["cite"] = (f"If a judgement relies on this result, put 'script {script_id}' in its evidence: the reviewer "
+                      "re-runs the scripts a judgement cites.")
     return result
+
+
+SCRIPT_CITATION = re.compile(r"\bscript\s+(S\d+)\b", re.I)
+
+
+def cited_scripts(audit: AuditContext, *texts: str | None) -> list[dict]:
+    """The logged scripts a judgement's description or evidence cites ("script S3"), in citation order."""
+    by_id = {s["id"]: s for s in audit.scripts}
+    ids = dict.fromkeys(m.group(1).upper() for t in texts if t for m in SCRIPT_CITATION.finditer(t))
+    return [by_id[i] for i in ids if i in by_id]
 
 
 def _brief(f) -> dict:
@@ -295,8 +317,11 @@ async def run_probe(ctx: RunContextWrapper[AuditContext], probe: ProbeName, targ
 @function_tool
 async def evaluate_js(ctx: RunContextWrapper[AuditContext], function: str) -> str:
     """Run a read-only JavaScript function in the loaded page and return its JSON result, to measure something no
-    tool covers (computed styles, element geometry, attribute values). Requests that write or navigate are blocked,
-    the script times out after 5 s, and if it changes the page the page is reloaded. Return plain data, not elements.
+    tool covers (computed styles, element geometry, attribute values, a widget's states). Requests that write or
+    navigate are blocked, the script times out after 5 s, and if it changes the page the page is reloaded. Return
+    plain data, not elements. Each run gets an id (S1, S2, ...): cite it in a judgement's evidence as "script S2", so
+    the reviewer can re-run it. A script result is your evidence, not an automated check: it never closes a criterion
+    by itself.
 
     Args:
         function: A JavaScript function, e.g. "() => getComputedStyle(document.querySelector('a')).outlineStyle".

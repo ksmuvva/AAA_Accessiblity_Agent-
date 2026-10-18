@@ -54,7 +54,14 @@ def _run(scripts, tmp_path, **kwargs):
     async def scenario():
         async with AuditContext(output_dir=tmp_path, screen_reader="emulated", tracing=False) as audit:
             await load_html_content(audit, (FIXTURES / "bad_page.html").read_text(encoding="utf-8"), PAGE)
-            if kwargs.pop("explorer_state", False):   # as if the explorer had labelled a state: swept, not forced through the lead
+            if kwargs.pop("lazy", False):       # lazy measurement: only the cheap probes, as run_audit does on load
+                from agent_access.agent_tools.check_tools import measure_on_load
+                audit.measurement = "lazy"
+                await measure_on_load(audit)
+            if kwargs.pop("measured", False):   # as run_audit does: the start page is measured before the planner starts
+                from agent_access.engine import run_sweep
+                await run_sweep(audit)
+            if kwargs.pop("explorer_state", False):   # a labelled state with no recorded steps: it can't be rebuilt
                 audit.set_current(PAGE + " [after search]")
                 audit.current_url = PAGE
             outcome = await run_agentic_audit(audit, model=model, progress=lambda m: None, **kwargs)
@@ -78,6 +85,7 @@ def test_planner_owns_the_run_and_the_code_floors_close_it(tmp_path):
             call("record_finding", {"criterion": "2.4.2", "status": "pass", "description": "Descriptive title.",
                                     "evidence": "Title names the page and the site.", "selectors": ["title"]}),
             {"notes_for_human": ["No video to play."]},
+            {"notes_for_human": []},   # the continuation run that always follows the first
         ],
         "reviewer": [confirm_all],
         "summary writer": [SUMMARY],
@@ -101,9 +109,9 @@ def test_finish_is_refused_until_opened_pages_are_audited_then_code_floor_audits
         "audit planner": [
             call("get_plan_status", {}),
             call("finish", {"reason": "done"}),   # refused: the page was never audited
-            lambda input: {"pages_audited": [], "goal_changes": [], "stopped_because": "gave up", "notes_for_human": []},
-        ],
-        "lead auditor": [call("get_open_items", {}), {"notes_for_human": []}],
+            *[lambda input: {"pages_audited": [], "goal_changes": [], "stopped_because": "gave up", "notes_for_human": []}] * 3,
+        ],   # it gives up, and again each of the two times the harness hands it back what it owes
+        "lead auditor": [call("get_open_items", {}), {"notes_for_human": []}, {"notes_for_human": []}],   # + the continuation run that always follows the first
         "reviewer": [confirm_all],
         "summary writer": [SUMMARY],
     }
@@ -111,6 +119,7 @@ def test_finish_is_refused_until_opened_pages_are_audited_then_code_floor_audits
     refused = last_tool_output(model, "audit planner", 2)
     assert '"ok": false' in refused and PAGE in refused
     actions = [e["action"] for e in outcome.plan_log]
+    assert actions.count("planner_resumed") == 2 and "You stopped without finish" in model.inputs["audit planner"][3][-1]["content"]
     assert "lead_floor" in actions and "finish" not in actions
     assert not model.scripts["lead auditor"]        # the code floor ran the lead on the page the planner skipped
     assert outcome.report is not None
@@ -123,13 +132,13 @@ def test_explorer_states_do_not_block_finish(tmp_path):
             call("finish", {"reason": "done"}),
             {"pages_audited": [PAGE], "goal_changes": [], "stopped_because": "done", "notes_for_human": []},
         ],
-        "lead auditor": [{"notes_for_human": []}],
+        "lead auditor": [{"notes_for_human": []}, {"notes_for_human": []}],   # + the continuation run that always follows the first
         "reviewer": [confirm_all],
         "summary writer": [SUMMARY],
     }
     model, audit, outcome = _run(scripts, tmp_path, explorer_state=True)
     finished = last_tool_output(model, "audit planner", 2)
-    assert '"ok": true' in finished                      # the labelled state never had a lead pass, and that's fine
+    assert '"ok": true' in finished    # a labelled state with no recorded steps can't be rebuilt, so it can't block
     assert "lead_floor" not in [e["action"] for e in outcome.plan_log]
     assert PAGE + " [after search]" in audit.pages and outcome.report is not None
 
@@ -162,3 +171,90 @@ def test_back_to_checks_the_live_browser_not_only_the_cursor(tmp_path):
 
     ok, title = asyncio.run(scenario())
     assert ok and title == "A"
+
+
+def _skip_scripts(verdict, lead):
+    stop = {"pages_audited": [], "goal_changes": [], "stopped_because": "done", "notes_for_human": []}
+    return {
+        "audit planner": [
+            call("skip_pages", {"skips": [{"page": PAGE, "reason": "An error page with nothing to audit."}]}),
+            call("finish", {"reason": "done"}),
+            # A rejected skip leaves the page owed, so the harness hands the planner back twice before the code floor.
+            *([stop] * (3 if verdict == "rejected" else 1)),
+        ],
+        "skip reviewer": [{"verdicts": [{"page": PAGE, "verdict": verdict, "reason": "Compared the profiles."}]}],
+        "lead auditor": lead,
+        "reviewer": [confirm_all] * 3,
+        "summary writer": [SUMMARY],
+    }
+
+
+def test_an_accepted_skip_lets_the_planner_finish_and_is_reported_with_its_reason(tmp_path):
+    model, audit, outcome = _run(_skip_scripts("accepted", lead=[]), tmp_path, measured=True)
+    reviewed = last_tool_output(model, "audit planner", 1)
+    assert '"verdict": "accepted"' in reviewed
+    finished = last_tool_output(model, "audit planner", 2)
+    assert '"ok": true' in finished and PAGE in finished           # no hard floor: the justified skip stands
+    profile = model.inputs["skip reviewer"][0][-1]["content"]
+    assert '"headings": 1' in profile and '"landmarks": [' in profile   # built from the measured page's probe data
+    assert '"audited_pages": []' in profile
+    actions = [e["action"] for e in outcome.plan_log]
+    assert "skip_pages" in actions and "lead_floor" not in actions  # the lead was never forced onto the page
+    assert any("skipped by the audit planner (An error page with nothing to audit.)" in w for w in outcome.warnings)
+
+
+def test_a_rejected_skip_still_gets_its_lead_pass(tmp_path):
+    lead = [call("get_open_items", {}), {"notes_for_human": []}, {"notes_for_human": []}]   # + the continuation run that always follows the first
+    model, audit, outcome = _run(_skip_scripts("rejected", lead), tmp_path)
+    assert '"verdict": "rejected"' in last_tool_output(model, "audit planner", 1)
+    refused = last_tool_output(model, "audit planner", 2)
+    assert '"ok": false' in refused and "skip_pages" in refused
+    assert "lead_floor" in [e["action"] for e in outcome.plan_log]
+    assert not model.scripts["lead auditor"]                        # the code floor audited the rejected page
+    assert not any("skipped by the audit planner" in w for w in outcome.warnings)
+
+
+def test_a_skipped_page_that_was_audited_anyway_is_not_reported_as_skipped():
+    from agent_access.team.planner import PlanState, accepted_skips
+
+    state = PlanState(team=None, model=None, reviewer_model=None, review=True, min_pages=1, max_pages=1)
+    state.skips = {"a": {"reason": "duplicate", "verdict": "accepted"}, "b": {"reason": "error page", "verdict": "accepted"},
+                   "c": {"reason": "saves budget", "verdict": "rejected"}}
+    state.lead_runs = {"b": 1}
+    assert accepted_skips(state) == {"a": "duplicate"}
+
+
+def _lazy_skip_scripts(planner_steps):
+    return {
+        "audit planner": planner_steps + [
+            {"pages_audited": [], "goal_changes": [], "stopped_because": "done", "notes_for_human": []}],
+        "skip reviewer": [{"verdicts": [{"page": PAGE, "verdict": "accepted", "reason": "Compared the profiles."}]}],
+        "lead auditor": [],
+        "reviewer": [confirm_all] * 6,
+        "summary writer": [SUMMARY] * 2,
+    }
+
+
+SKIP = call("skip_pages", {"skips": [{"page": PAGE, "reason": "An error page with nothing to audit."}]})
+
+
+def test_an_accepted_skip_is_measured_before_the_review_and_summary(tmp_path):
+    """Lazy measurement: the skipped page's target checks run when the skip is accepted, so the planner's own
+    review and summary already see its findings, and nothing is reviewed or summarised twice."""
+    model, audit, outcome = _run(_lazy_skip_scripts([
+        SKIP, call("review_pages", {}), call("write_summary", {}), call("finish", {"reason": "done"})]),
+        tmp_path, lazy=True)
+    fails = [f for f in audit.findings if f.status.value == "fail" or f.original_status is not None]
+    assert fails and all(f.review_verdict is not None for f in fails)
+    assert len(model.inputs["summary writer"]) == 1
+
+
+def test_findings_recorded_after_the_review_are_reviewed_and_summarised(tmp_path):
+    """If the planner reviews and summarises first and skips afterwards, the late findings are still reviewed and
+    the summary is rewritten to include them."""
+    model, audit, outcome = _run(_lazy_skip_scripts([
+        call("review_pages", {}), call("write_summary", {}), SKIP, call("finish", {"reason": "done"})]),
+        tmp_path, lazy=True)
+    fails = [f for f in audit.findings if f.status.value == "fail" or f.original_status is not None]
+    assert fails and all(f.review_verdict is not None for f in fails)
+    assert len(model.inputs["summary writer"]) == 2 and outcome.summary is not None

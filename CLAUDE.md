@@ -5,8 +5,8 @@ Agent_Access is a multi-agent WCAG 2.2 auditor on the **OpenAI Agents SDK** (`op
 
 - One rule per WCAG 2.2 criterion: **86 rules** (A/AA/AAA), each with a fixed name, e.g. `check_non_text_content` (1.1.1).
 - Technologies: axe-core, Playwright (Chromium), the Colour Contrast Analyser method, and NVDA (real via Guidepup, or emulated from the accessibility tree).
-- Flow: every page is swept in code (all probes, then all 86 rules). A lead agent plus forms/media/navigation specialists then judge **every** criterion (see the coverage contract). A reviewer re-checks every FAIL and every agent PASS or NOT_APPLICABLE, and a summary writer finishes.
-- `--level A|AA|AAA` (default AA) sets the target. Criteria above it are still tested and reported as `beyond_target`.
+- Flow: every page is measured in code (eager: all probes, then all 86 rules on load; lazy, the CLI default: the agents choose, and the target level is swept before a page is done). A lead agent plus forms/media/navigation specialists then judge **every** criterion (see the coverage contract). A reviewer re-checks every FAIL and every agent PASS or NOT_APPLICABLE, and a summary writer finishes.
+- `--level A|AA|AAA` (default AA) sets the target. Criteria above it are reported as `beyond_target`: always tested in eager measurement, only when an agent asks in lazy (the CLI default).
 
 ## Working guidelines
 
@@ -89,7 +89,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - `tests/test_agent.py` drives the whole team with `RouterModel`, a scripted fake model keyed on each agent's `"You are the <role>"` instructions prefix; `test_every_criterion_ends_with_an_agent_judgement` is the end-to-end coverage contract. `test_planning.py` covers the open-items contract, `test_safeguards.py` the reviewer rules, interaction guard, context trimming and per-page orchestration, `test_criterion_tools.py` the generic criterion tools and catalogue sync.
   - `tests/test_tune_{perceivable,operable,understandable}.py` with fixtures `tests/fixtures/{p,o,u}_*.html` give each rule a page it fails on; `test_benchmark_regressions.py` covers the W3C BAD demo patterns.
 - After changing a rule's `@wcag_tool` name, `tech`, `uses` or `judgement`, run `python -m agent_access.catalogue.sync`. A test checks it with `--check`.
-- Evals use a real model and cost money: `python -m evals.run_eval [--model M] [--cases NAME ...] [--fail-on-false-pass]`. They compare against `evals/cases.json` and report recall, precision, the share of criteria decided, and false passes.
+- Evals use a real model and cost money: `python -m evals.run_eval [--model M] [--cases NAME ...] [--mode code|agent] [--measurement eager|lazy] [--no-interaction] [--fail-on-false-pass]` (defaults code + eager; the CLI's are agent + lazy; interaction is allowed in both, like the CLI). They compare against `evals/cases.json` and report recall, precision, the share of criteria decided, and false passes; each results file records the git commit, settings and model calls. `python -m evals.compare A.json B.json` diffs two runs (e.g. main against a branch, same flags).
 
 ## Architecture
 
@@ -125,14 +125,14 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 ### How agents reach criteria
 
 - Agents don't get 86 tools. `get_criterion(criterion)` returns `engine.criterion_view` (status, findings with evidence, rule details, understanding URL, `your_judgement_needed`, `measured_only`, a `note` when the check hasn't run on this page state, the dirty-page `warning`); it measures nothing. `rerun_check(criterion)` calls `run_rule`.
-- The `criterion` parameter is a JSON-schema enum scoped by the rule's `domain` (`lead`, `forms`, `media`, `navigation`). The lead's enum holds all 86, because it judges what specialists leave open. The lead has 17 tools, specialists 10-12.
-- **Coverage contract (`planning.is_open`):** a criterion stays open on a page until it fails or an agent has recorded a judgement for it, whatever the automated check said (needs review, passed, or not applicable). `SUGGESTED_TESTS[c]` is `[rule name, audit_<domain> (specialist domains), "review"]` for every criterion; `get_open_items` shows each open criterion's next untried step. An agent's own `needs_review` moves it to `exhausted_for_human`. Specialists get the same loop scoped to their domain (`open_items_tool(domain)`); what they leave comes back to the lead as `"review"`. `record_findings` records several judgements in one turn.
+- The `criterion` parameter is a JSON-schema enum scoped by the rule's `domain` (`lead`, `forms`, `media`, `navigation`). The lead's enum holds all 86, because it judges what specialists leave open. The lead has 19 tools, specialists 11-13 (tests cap them).
+- **Coverage contract (`planning.is_open`):** a criterion stays open on a page until it fails or an agent has recorded a judgement for it, whatever the automated check said (needs review, passed, or not applicable). `get_open_items` reports **state, not a route**: each open criterion's `status`, `measured` (its check ran on this page state) and `automated` (the check's results by status), plus, for the lead, `specialists` (per specialist: its open criteria and whether it was tried on the page). It never names a next step; the agent plans the order and method, and code still decides `done`. An agent's own `needs_review` moves it to `exhausted_for_human`. Specialists get the same view scoped to their domain (`open_items_tool(domain)`); what they leave stays open for the lead. `record_findings` records several judgements in one turn.
 
 ### How a run flows (`team/orchestrator.py`)
 
-1. **Sweep** every loaded page: all probes, then all 86 rules (`engine.run_sweep`). Process states skip the form tests.
+1. **Sweep** every loaded page: all probes, then all 86 rules (`engine.run_sweep`; in lazy measurement only the cheap probes, and the target-level floor later). Process states skip the form tests.
 2. **Pages are iterated in code.** With `--pages N`, the page picker (a no-tools agent) chooses N-1 same-site links; its picks are checked against the real links and gaps filled in link order.
-3. **Lead loop, once per page,** in a fresh run: `get_open_items` -> read with `get_criterion` (or `rerun_check`), delegate, or judge (`record_finding(s)`) -> repeat until `done`. If the page isn't done, the lead gets a fresh continuation run: the first always, later ones only while the previous run settled something (`LEAD_RUNS_PER_PAGE = 4`).
+3. **Lead loop, once per page,** in a fresh run: `get_open_items` -> the lead chooses: measure (`run_checks`), delegate, or read with `get_criterion` and judge (`record_finding(s)`) -> repeat until `done`. If the page isn't done, the lead gets a fresh continuation run: the first always, later ones only while the previous run settled something (`LEAD_RUNS_PER_PAGE = 4`).
 4. **Specialists** run nested `Runner.run`s on the same `AuditContext` (80 turns) over their own open items and report what they left (`not_judged`), which stays open for the lead.
 5. **Process** (`--process`): a separate lead run from the restored first page. **Site tests** re-run 3.2.3/3.2.4/3.2.6 on every page once all pages exist.
 6. **Coverage warnings** (pages not done, specialist leftovers) go to `outcome.warnings` and the report.
@@ -141,8 +141,8 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 
 ### Rules that aren't obvious from one file
 
-- **Reviewer:** an agent pass on a judgement criterion, and every agent not-applicable, is reviewed **blind** (`reviewer.is_blind`): its brief carries the criterion's question, selectors and automated check, never the auditor's description or evidence, so the reviewer judges instead of agreeing. Its model defaults to the SDK's default when `--model` names another one (`orchestrator.default_reviewer_model`). Measured failures (`axe`/`custom`) stay fails unless `rejected` (`uncertain` keeps them). Agent fails, passes and not-applicables stay only if `confirmed`; otherwise they become `needs_review`, never `fail`, with `original_status` kept. A failed batch is `not_reviewed`; the others still run. Process-state results are kept and marked `not_reviewed`.
-- **Status precedence** (`report_tools._criterion_status`): fail > reviewer-demoted fail (needs_review) > agent pass > needs_review > not_applicable > automated-pass-only (needs_review) > not_tested. Doubt about a failure never becomes a pass. Across pages, the worst status wins.
+- **Reviewer:** an agent pass on a judgement criterion, and every agent not-applicable, is reviewed **blind** (`reviewer.is_blind`): its brief carries the criterion's question, selectors and automated check, never the auditor's description or evidence, so the reviewer judges instead of agreeing. Its model defaults to the SDK's default when `--model` names another one (`orchestrator.default_reviewer_model`). Measured failures (`axe`/`custom`) stay fails unless `rejected` (`uncertain` keeps them). Agent fails, passes and not-applicables stay only if `confirmed`; otherwise they become `needs_review`, never `fail`, with `original_status` kept. A failed batch is `not_reviewed`; the others still run. A labelled state is rebuilt for the review (`AuditContext.restore_state`); one that can't be keeps its results, marked `not_reviewed`.
+- **Status precedence** (`report_tools._criterion_status`): fail > reviewer-demoted fail (needs_review) > agent pass > needs_review > not_applicable > automated-pass-only (needs_review) > not_tested. The report (`_criterion_results`) also reports a not_applicable no agent confirmed as needs_review; the agents' views still show the check's not_applicable. Doubt about a failure never becomes a pass. Across pages, the worst status wins.
 - **Agent judgements** (`add_manual_finding`): a new judgement replaces the same criterion's earlier agent findings that have a different status; same-status findings accumulate. Agent `fail`s are never overwritten; only the reviewer overturns them.
 - **Cross-page rules** (3.2.3/3.2.4/3.2.6) record `needs_review` with a reason on a single page or with nothing to compare; 3.2.4 compares only destinations linked from every audited page.
 - **4.1.1 Parsing is removed.** axe `wcag411` results are dropped, and `record_finding` rejects the criterion.
@@ -191,8 +191,8 @@ code can't tell you (gotchas, non-obvious contracts, how to run and test it); ev
 <!-- G1 start -->
 ### G1 Orchestration, planner, goals, budget
 - `cli` defaults to `--mode agent`: `run_audit(mode="agent")` opens and measures the start page, then hands the run to `team/planner.py`. `run_audit`'s own default is `code` (today's flow; `tests/test_agent.py` relies on it).
-- The planner (`"You are the audit planner"`, output `PlanReport`) decides pages, order, flows, review, summary, `finish`. Code floors stay: start page always measured; `finish` refuses while a planner-opened page has no lead pass; explorer-labelled states don't block it; `set_goal` only grows; reviewer and summary run even if the planner skips them; coverage warnings include "never measured".
-- `budget.charge_model_call` (called by `runtime.trim_input`) raises `BudgetExhausted` for working agents at the soft limit; planner, reviewer and summary writer keep `reserve_calls`. Test offline: `tests/test_agentic_planner.py` (RouterModel).
+- The planner (`"You are the audit planner"`, output `PlanReport`) decides pages, order, flows, review, summary, `finish`. Code floors stay: start page always measured; `audit_pages` (`run_lead_on`) re-runs the lead on a page with code mode's rule (one continuation always, more while a run settles something, up to `LEAD_RUNS_PER_PAGE`), then marks it `exhausted`; `finish` refuses while a planner-opened page or a rebuildable labelled state is neither done, exhausted nor an accepted skip (`skip_pages`: the planner gives a reason per page, the skip reviewer (`"You are the skip reviewer"`) accepts or rejects it from `page_profile`s; a review error rejects, so the old floor applies; accepted skips become coverage warnings with the reason); a labelled state that can't be rebuilt doesn't block it; `set_goal` only grows; reviewer and summary run even if the planner skips them; coverage warnings include "never measured".
+- `budget.charge_model_call` (called by `runtime.trim_input`) raises `BudgetExhausted` for working agents at the soft limit; planner, reviewer and summary writer keep `reserve_calls`. Test offline: `tests/test_agentic_planner.py`, `tests/test_agentic_harness.py` (RouterModel).
 <!-- G1 end -->
 
 <!-- G2 start -->
@@ -215,7 +215,9 @@ code can't tell you (gotchas, non-obvious contracts, how to run and test it); ev
   `current_url`, `dirty`. No page until `restore_page(key)`. `audit.page()` is unchanged.
 - `run_parallel` (any pages) / `run_agents` (one page) fork per job, return an Exception instead of raising, close the forks, and run
   sequentially on the root with real NVDA (`can_fork()`), a process-state key, or one job.
-- **A state labelled on a fork must be judged on that fork**: nothing else can restore it.
+- A labelled state is rebuilt by replaying the steps that reached it (`audit.steps` since the page last loaded, saved in
+  `state_paths` with a fingerprint by `label_state`); a fingerprint mismatch means it can't be. One labelled without
+  recorded steps must still be judged where it was labelled. `label_state` refuses Chromium's error page.
 - `collect` holds `probe_lock(page, probe)`, so forks measure once. `network_guard(source="agent")` records reportable
   tripwires; the default `"probe"` records expected blocks (no action). Test: `pytest -n 0 tests/test_agentic_parallel.py`.
 <!-- G3 end -->
@@ -242,17 +244,22 @@ code can't tell you (gotchas, non-obvious contracts, how to run and test it); ev
   so agents may click Submit/Checkout; only irreversible intent is refused.
 - Import `agent_access.agent_tools.verify_tools` directly, never via `agent_tools/__init__` (circular via engine).
 - Interaction is ON in the CLI (`--no-interaction`), OFF by default on `AuditContext`.
-- Test: `python -m pytest -n 0 tests/test_agentic_guardrails.py`.
+- `evaluate_js` is also the open instrument of the lead, the specialists and the reviewer. Every run is logged in
+  `audit.scripts` with an id (`S1`...); a judgement cites it as "script S1" in its evidence; the reviewer's brief
+  carries the cited scripts (not on a blind item) (`reviewer._brief`, `verify_tools.cited_scripts`) and it re-runs them; the report lists
+  every script. A script result is agent evidence, never a measurement: the finding stays `source="agent"`.
+- Test: `python -m pytest -n 0 tests/test_agentic_guardrails.py tests/test_agentic_scripts.py`.
 <!-- G5 end -->
 
 <!-- G6 start -->
 ### G6 Agentic measurement, tests, evals, integration
-`agent_tools/check_tools.py`. `audit.measurement` is `eager` (default, both modes: today's sweep on load) or `lazy`
-(`measure_on_load` pre-collects only `CHEAP_PROBES`, runs no rule; agents measure with `run_checks(criteria)`,
-`run_all_checks()`). **Floor:** `run_sweep_remaining(audit, page_key)` runs every rule not yet run on the page; the
-planner/orchestrator calls it before a page is done, so lazy changes who chooses the order, never whether everything
-is measured. It reloads the page first unless the browser is provably on it; a labelled state can't be reloaded, so
-its unrun checks stay "never measured". `open_items` adds `unmeasured` and `measurement`; an unrun check shows as `run_checks`. Rules only ever
+`agent_tools/check_tools.py`. `audit.measurement` is `eager` (AuditContext's default, and what the tests and evals
+get: the sweep on load) or `lazy` (**the CLI default**; `measure_on_load` pre-collects only `CHEAP_PROBES`, runs no
+rule; agents measure with `run_checks(criteria)`, `run_all_checks()`). **Floor:** `run_sweep_remaining(audit,
+page_key)` runs every *target-level* rule (`target_tools`) not yet run on the page; the planner/orchestrator calls it
+before a page is done, so lazy never leaves the target unmeasured. Above-target rules run only if an agent asks; the
+rest stay `not_tested` and the report says they were not measured. It reloads the page first unless the browser is provably on it; a labelled state can't be reloaded, so
+its unrun checks stay "never measured". `open_items` adds `unmeasured` and `measurement`; an unrun check shows as `measured: false`. Rules only ever
 see default-state probe data (G5's `run_probe` with options is never cached). Test:
 `python -m pytest -n 0 tests/test_agentic_measurement.py`.
 <!-- G6 end -->

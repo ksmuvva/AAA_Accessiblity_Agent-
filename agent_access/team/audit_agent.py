@@ -18,6 +18,7 @@ from agent_access.team.specialists import build_specialist, parallel_tool, speci
 from agent_access.agent_tools import INSPECTION_TOOLS, INTERACTION_TOOLS
 from agent_access.agent_tools.planning import get_open_items
 from agent_access.agent_tools.report_tools import record_finding, record_findings
+from agent_access.agent_tools.verify_tools import evaluate_js
 from agent_access.context import AuditContext, Delegation
 from agent_access.engine import criterion_tools_for
 from agent_access.models import LeadNotes
@@ -38,23 +39,35 @@ page named in the input with your tools and three specialists (audit_forms, audi
 and you report only what evidence supports.
 
 ## Your tools
-- The page is already loaded, and the automated check for ALL 86 criteria (A, AA, and AAA) has already run on
-  it and recorded its findings, using axe-core, Playwright, the Colour Contrast Analyser method, and NVDA (or
-  its emulation). Automation is evidence, not the last word: every criterion at the target level needs a
-  judgement from you or a specialist before the page is finished.
+- The page is already loaded. Its automated checks (axe-core, Playwright, the Colour Contrast Analyser method,
+  and NVDA or its emulation) may all have run already, or only the ones someone asked for: get_open_items says
+  which criteria are measured. Automation is evidence, not the last word: every criterion at the target level
+  needs a judgement from you or a specialist before the page is finished.
 - get_criterion(criterion) shows one criterion: its status, the check's findings, evidence and details,
   judgements so far, and what you must judge (your_judgement_needed). Your area is content, structure, visual
   design, language, and name/role/value, e.g. 1.1.1, 1.4.3, 3.1.2, 4.1.2.
-- run_checks(criteria) runs checks again; only needed when get_open_items lists "run_checks".
+- run_checks(criteria) measures criteria on this page state; it's cheap, because each check collects only what it
+  needs. run_all_checks() measures everything at once. Before the page is declared done, code measures any
+  target-level criterion nobody measured, so measure early only what you are about to judge.
+- evaluate_js(function) runs your own read-only script in the page when no check measures what you need (a
+  custom widget's states, text over an image, an element's geometry). Cite the script id it returns in your
+  evidence ("script S2"); the reviewer re-runs cited scripts. A fail that rests only on a script result goes to
+  verify_judgement first when you have it.
 - record_findings records several judgements in one call; record_finding records one.
 - get_recorded_findings shows everything recorded so far.
 
 ## Plan, judge, repeat
-1. Call get_open_items. If done is true, the page is finished.
-2. Pick the test in tests_to_run that settles the most criteria:
-   - "run_checks": call run_checks with those criteria, then read the results;
+get_open_items reports the page's state: each open criterion's status, whether its check has run on this page
+state (measured), the check's results, and which specialist owns which open criteria and whether it has been
+tried. It does not tell you what to do next. You plan the order and the method from what the page contains.
+1. Call get_open_items. If done is true, the page is finished. On your first call, also look at the page
+   (get_page_outline, take_screenshot) so your plan fits it.
+2. Choose the next step that settles the most for this page:
+   - measure: run_checks the unmeasured criteria you are about to judge (run_all_checks on a dense page);
 {delegation}
-   - "review": judge those criteria yourself (below) and record them.
+   - judge yourself: get_criterion, gather evidence (below), and record the judgements.
+   For example, hand a form-heavy page to the forms specialist early; on a page with no media, confirm the media
+   criteria not applicable together after checking the screenshot; skip a specialist whose area has nothing open.
 3. Go back to 1. Never stop while get_open_items says done is false.
 
 ## Judging criteria yourself ("review")
@@ -91,15 +104,15 @@ a video you could not play).
 """
 
 DELEGATION_TOOLS = """\
-   - audit_forms / audit_media / audit_navigation: delegate to that specialist. Its reply lists what it left
-     unjudged (not_judged); those come back to you as "review";"""
+   - delegate: audit_forms / audit_media / audit_navigation hands that area to its specialist. Its reply lists
+     what it left unjudged (not_judged); those stay open for you to judge;"""
 
 DELEGATION_HANDOFF = """\
-   - audit_forms / audit_media / audit_navigation: hand the page to that specialist. The conversation transfers
-     to it; it judges and records its criteria, then returns to you with return_to_lead and its report. When
-     several specialists are listed, audit_in_parallel(domains, focus) runs them at the same time on their own
-     browser pages and returns all their reports. Afterwards call get_open_items: what a specialist left comes
-     back to you as "review";"""
+   - delegate: audit_forms / audit_media / audit_navigation hands the page to that specialist. The conversation
+     transfers to it; it judges and records its criteria, then returns to you with return_to_lead and its report.
+     When several areas have open criteria, audit_in_parallel(domains, focus) runs those specialists at the same
+     time on their own browser pages and returns all their reports. Afterwards call get_open_items: what a
+     specialist left stays open for you to judge;"""
 
 SUBAGENTS_SECTION = """
 ## Subagents
@@ -142,7 +155,7 @@ def build_audit_agent(model: str | Model | None = None, *, delegation: str = "to
     explorer's states (the explore_page and verify_judgement handoffs are attached by `build_team`).
     `specialist_builder(domain, model)` makes the specialists the delegate and parallel tools run."""
     delegation = delegation_mode(delegation)
-    tools = [get_open_items, *criterion_tools_for(None), *INSPECTION_TOOLS, record_finding, record_findings]
+    tools = [get_open_items, *criterion_tools_for(None), *INSPECTION_TOOLS, evaluate_js, record_finding, record_findings]
     tools += (specialist_tools(model, specialist_builder) if delegation == "tools"
               else [parallel_tool(model, specialist_builder)])
     tools += INTERACTION_TOOLS

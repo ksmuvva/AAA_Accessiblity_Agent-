@@ -26,3 +26,19 @@ def test_cases_are_well_formed():
         assert (HERE / case["file"]).is_file(), case["file"]
         for criterion, status in case["expected"].items():
             assert catalogue.get(criterion) is not None and status in ("pass", "fail"), (case["name"], criterion)
+
+
+def test_compare_shows_metric_changes_calls_and_changed_outcomes():
+    from evals.compare import compare
+
+    def run(commit, recall, outcome, calls):
+        return {"git_commit": commit, "mode": "agent", "measurement": "lazy", "model": "m", "reviewer_model": None,
+                "used_lessons": False, "metrics": {"recall": recall, "precision": 1.0, "decided": 0.5, "false_passes": 0},
+                "cases": [{"name": "judgement_bad", "model_calls": calls,
+                           "rows": [{"criterion": "1.1.1", "outcome": outcome}, {"criterion": "2.4.2", "outcome": "caught"}]}]}
+
+    lines = "\n".join(compare(run("aaa111", 0.5, "flagged_for_human", 120), run("bbb222", 0.75, "caught", 90)))
+    assert "aaa111" in lines and "bbb222" in lines
+    assert "recall" in lines and "change +0.250" in lines
+    assert "judgement_bad: 120 -> 90" in lines
+    assert "judgement_bad 1.1.1: flagged_for_human -> caught" in lines and "2.4.2" not in lines.split("Outcomes")[1]

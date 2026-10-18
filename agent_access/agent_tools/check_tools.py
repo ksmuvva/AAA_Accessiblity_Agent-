@@ -1,15 +1,17 @@
-"""Agentic measurement (lane G6): the agents choose which checks run and when; code guarantees everything runs.
+"""Agentic measurement (lane G6): the agents choose which checks run and when; code guarantees the target is measured.
 
-Two measurement modes, read from `audit.measurement` ("eager" is the default and today's behaviour):
+Two measurement modes, read from `audit.measurement` ("eager" is AuditContext's default; the CLI defaults to "lazy"):
 
     eager: measure_on_load runs the full sweep (every probe, all 86 rules) on every newly loaded page.
     lazy:  measure_on_load pre-collects only the cheap read-only probes (so the inspection tools have data) and runs no
            rule. Agents measure with run_checks(criteria) or run_all_checks().
 
-The floor (code, not model): run_sweep_remaining runs every rule that hasn't run on the page state yet. The orchestrator
-or planner calls it before a page is declared done, so lazy mode changes who chooses the order and the extras, never
-whether everything is measured. open_items keeps its contract (open until fail or an agent judgement) and additionally
-lists `unmeasured` criteria, so the agent, and the report's coverage warnings, can see what was never measured.
+The floor (code, not model): run_sweep_remaining runs every rule AT OR BELOW THE TARGET LEVEL that hasn't run on the
+page state yet. The orchestrator or planner calls it before a page is declared done, so lazy mode changes who chooses
+the order and the extras, never whether the conformance target is measured. Criteria above the target run only when an
+agent asks for them; the ones nobody asked for stay not_tested and the report says they were not measured. open_items
+keeps its contract (open until fail or an agent judgement) and additionally lists `unmeasured` target criteria, so the
+agent, and the report's coverage warnings, can see what was never measured.
 
 A probe with parameters (viewport, colour scheme, reduced motion) is G5's run_probe (agent_tools/verify_tools.py): a
 retest or an explicit rerun updates the page's probe cache, and run_checks then judges the new data; results measured
@@ -53,9 +55,16 @@ async def measure_on_load(audit: AuditContext) -> list[dict]:
     return []
 
 
+def target_tools(audit: AuditContext) -> list:
+    """The rules at or below the conformance target, in sweep order: what the floor guarantees is measured."""
+    target = {r.wcag_criterion for r in audit.target_rules()}
+    return [t for t in TOOLS_IN_ORDER if t.criterion in target]
+
+
 async def run_sweep_remaining(audit: AuditContext, page_key: str | None = None) -> list[dict]:
-    """The floor: run every rule whose check hasn't run on `page_key` (default: the page cursor), then mark it swept.
-    Idempotent, and a no-op on a page the sweep already covered. Returns the rule runs it made.
+    """The floor: run every target-level rule whose check hasn't run on `page_key` (default: the page cursor), then mark
+    it swept. Rules above the target are left to the agents. Idempotent, and a no-op on a page whose target-level checks
+    have all run. Returns the rule runs it made.
 
     Rules measure the DOM the browser is showing, so the floor first makes sure that is `page_key`: it reloads the page
     unless the browser is provably on it and it is clean. A labelled state (reached by interaction) can't be reloaded;
@@ -66,7 +75,8 @@ async def run_sweep_remaining(audit: AuditContext, page_key: str | None = None) 
     page = page_key or audit.current_url
     if page is None or not audit.has_page():
         return []
-    if all(t.name in audit.attempted_on(page) for t in TOOLS_IN_ORDER):
+    floor = target_tools(audit)
+    if all(t.name in audit.attempted_on(page) for t in floor):
         audit.swept.add(page)
         return []
     if is_state_key(page):
@@ -79,7 +89,7 @@ async def run_sweep_remaining(audit: AuditContext, page_key: str | None = None) 
         return []
     before = len(audit.tool_runs)
     with audit.at_page(page):
-        for tool in TOOLS_IN_ORDER:
+        for tool in floor:
             if tool.name not in audit.attempted_on(page):
                 await run_rule(audit, tool)
         audit.swept.add(page)
@@ -141,7 +151,7 @@ def check_tools(criteria: list[str], *, include_all: bool) -> list[FunctionTool]
     tools = [function_tool(run_checks, description_override=(
         "Run the automated checks for these criteria on the loaded page now and record their findings (replacing earlier "
         "ones). Each check measures only what its rule needs, so this is the cheap way to measure a few criteria before "
-        "judging them. get_open_items lists unmeasured criteria under tests_to_run['run_checks']. Returns each check's "
+        "judging them. get_open_items marks criteria whose check hasn't run as measured: false. Returns each check's "
         "result, findings, details and what you must judge; then read details with get_criterion and record_findings."))]
     if include_all:
         async def run_all_checks(ctx: RunContextWrapper[AuditContext]) -> str:
@@ -163,4 +173,4 @@ def check_tools_for(domain: str | None) -> list[FunctionTool]:
 
 
 __all__ = ["CHEAP_PROBES", "MEASUREMENT_MODES", "check_tools_for", "measure_on_load", "measurement_mode",
-           "run_all_checks_now", "run_checks_now", "run_sweep_remaining"]
+           "run_all_checks_now", "run_checks_now", "run_sweep_remaining", "target_tools"]

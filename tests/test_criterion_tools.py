@@ -30,11 +30,11 @@ def test_each_agent_gets_generic_tools_scoped_to_its_criteria():
         assert "rerun_check" not in names and "run_all_checks" not in names  # one measuring tool; the sweep is the lead's
         assert not [n for n in names if n.startswith("check_")]
         assert _enum(agent) == [t.criterion for t in TOOLS_IN_ORDER if t.domain == domain]
-        assert len(names) <= 12
+        assert len(names) <= 13  # 12 plus evaluate_js, the agent's own read-only script
     lead = build_audit_agent("m")
     assert len(_enum(lead)) == 86  # the lead judges whatever specialists leave open
     assert {"run_checks", "run_all_checks"} <= {t.name for t in lead.tools}
-    assert len(lead.tools) <= 18
+    assert len(lead.tools) <= 19  # 18 plus evaluate_js
 
 
 def test_catalogue_is_in_sync_with_the_rules():
@@ -77,7 +77,7 @@ def test_unchecked_page_state_points_to_run_checks():
 
     (view, items), after, items_after = asyncio.run(scenario())
     assert "run_checks" in view["note"] and view["status"] == "not_tested"
-    assert "2.4.2" in items["tests_to_run"]["run_checks"]  # unmeasured: measure it with run_checks
-    assert not [t for t in items["tests_to_run"] if t.startswith("check_")]
+    by, by_after = ({i["criterion"]: i for i in x["open"]} for x in (items, items_after))
+    assert not by["2.4.2"]["measured"] and "2.4.2" in items["unmeasured"]  # unmeasured: measure it with run_checks
     assert "note" not in after and after["findings"]
-    assert "2.4.2" not in items_after["tests_to_run"].get("run_checks", []) and "2.4.2" not in items_after["unmeasured"]
+    assert by_after["2.4.2"]["measured"] and "2.4.2" not in items_after["unmeasured"]

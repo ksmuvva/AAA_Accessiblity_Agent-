@@ -1,6 +1,6 @@
 """Lane G6: agentic measurement. Lazy mode lets the agents choose what to measure; the code floor still measures
-everything before a page is done; eager mode is today's behaviour; open_items keeps its contract and shows what is
-unmeasured. No model calls."""
+every target-level criterion before a page is done; eager mode is today's behaviour; open_items keeps its contract and
+shows what is unmeasured. No model calls."""
 
 import asyncio
 from pathlib import Path
@@ -39,8 +39,7 @@ def test_lazy_load_measures_nothing_but_shows_everything_as_unmeasured():
     assert runs == [] and tool_runs == 0 and not swept
     assert probes == set(CHEAP_PROBES)  # only the cheap read-only probes were collected
     assert items["measurement"] == "lazy" and items["open_count"] == 55 and len(items["unmeasured"]) == 55
-    assert set(items["tests_to_run"]) == {"run_checks"} and len(items["tests_to_run"]["run_checks"]) == 55
-    assert all(i["status"] == "not_tested" and i["next_tests"] == ["run_checks"] for i in items["open"])
+    assert all(i["status"] == "not_tested" and not i["measured"] and i["automated"] == {} for i in items["open"])
 
 
 def test_run_checks_measures_only_what_the_rules_need():
@@ -63,11 +62,12 @@ def test_run_checks_measures_only_what_the_rules_need():
     assert all(r["your_judgement_needed"] for r in first["ran"] + second["ran"])
     assert first["unmeasured_after"] == 53 and second["unmeasured_after"] == 52 and len(items["unmeasured"]) == 52
     # Measured criteria stay open until an agent judges them: the coverage contract is unchanged.
-    assert items["open_count"] == 55 and "2.4.2" in items["tests_to_run"]["review"]
-    assert sorted(items["tests_to_run"]["run_checks"]) == sorted(items["unmeasured"])
+    by = {i["criterion"]: i for i in items["open"]}
+    assert items["open_count"] == 55 and by["2.4.2"]["measured"]
+    assert sorted(c for c, i in by.items() if not i["measured"]) == sorted(items["unmeasured"])
 
 
-def test_the_floor_measures_everything_the_agent_did_not():
+def test_the_floor_measures_every_target_criterion_the_agent_did_not():
     async def scenario():
         async with lazy_audit() as audit:
             await load(audit)
@@ -75,14 +75,63 @@ def test_the_floor_measures_everything_the_agent_did_not():
             await run_checks_now(audit, ["2.4.2", "3.1.1"])
             floor = await run_sweep_remaining(audit)
             again = await run_sweep_remaining(audit)
-            return floor, again, open_items(audit), unmeasured_criteria(audit), audit.attempted_on(PAGE), PAGE in audit.swept
+            target = {REGISTRY[r.wcag_criterion].name for r in audit.target_rules()}
+            return (floor, again, open_items(audit), unmeasured_criteria(audit), audit.attempted_on(PAGE),
+                    PAGE in audit.swept, target)
 
-    floor, again, items, unmeasured, tried, swept = asyncio.run(scenario())
-    assert len(floor) == 84 and again == []  # 86 rules minus the two the agent ran; idempotent
-    assert {r["tool"] for r in floor} == {t.name for t in TOOLS_IN_ORDER} - {"check_page_title", "check_page_language"}
+    floor, again, items, unmeasured, tried, swept, target = asyncio.run(scenario())
+    assert len(floor) == 53 and again == []  # the 55 AA-target rules minus the two the agent ran; idempotent
+    assert {r["tool"] for r in floor} == target - {"check_page_title", "check_page_language"}
     assert unmeasured == [] and items["unmeasured"] == [] and swept
-    assert tried >= {t.name for t in TOOLS_IN_ORDER}
-    assert items["open_count"] > 0 and "run_checks" not in items["tests_to_run"]  # measured, still to be judged
+    assert tried >= target
+    assert items["open_count"] > 0 and all(i["measured"] for i in items["open"])  # measured, still to be judged
+
+
+def test_the_floor_leaves_criteria_above_the_target_to_the_agents():
+    async def scenario():
+        async with lazy_audit() as audit:
+            await load(audit)
+            await measure_on_load(audit)
+            await run_checks_now(audit, ["1.4.6"])  # an AAA criterion the agent chose to measure
+            await run_sweep_remaining(audit)
+            return audit.attempted_on(PAGE), {REGISTRY[r.wcag_criterion].name for r in audit.beyond_target_rules()}
+
+    tried, beyond = asyncio.run(scenario())
+    assert tried & beyond == {REGISTRY["1.4.6"].name}  # only the one the agent asked for; the floor ran no AAA rule
+
+
+def test_the_report_says_which_criteria_above_the_target_were_not_measured():
+    from agent_access.agent_tools.report_tools import compile_site_report
+    from agent_access.report_writer import render_markdown
+    from agent_access.team.orchestrator import AuditOutcome
+
+    async def scenario():
+        async with lazy_audit() as audit:
+            await load(audit)
+            await measure_on_load(audit)
+            await run_checks_now(audit, ["1.4.6"])
+            await run_sweep_remaining(audit)
+            report = compile_site_report(audit)
+            md = render_markdown(AuditOutcome(report=report, tool_runs=audit.tool_runs))
+            # A check that ran (e.g. on another page) counts as measured even when the criterion's status is not_tested.
+            extra = dict(audit.tool_runs[-1], criteria="1.4.8")
+            md_extra = render_markdown(AuditOutcome(report=report, tool_runs=[*audit.tool_runs, extra]))
+            return md, md_extra, len(audit.beyond_target_rules())
+
+    md, md_extra, beyond = asyncio.run(scenario())
+    assert f"1 higher-level criteria were also tested; {beyond - 1} were not measured on any page" in md
+    assert f"2 higher-level criteria were also tested; {beyond - 2} were not measured on any page" in md_extra
+
+
+def test_the_floor_measures_everything_when_the_target_is_aaa():
+    async def scenario():
+        async with lazy_audit() as audit:
+            audit.target_level = "AAA"
+            await load(audit)
+            await measure_on_load(audit)
+            return await run_sweep_remaining(audit)
+
+    assert len(asyncio.run(scenario())) == len(TOOLS_IN_ORDER)
 
 
 A_PAGE = "<html lang='en'><head><title>Alpha</title></head><body><main><h1>Alpha</h1><a href='/alpha'>Alpha link</a></main></body></html>"
@@ -111,7 +160,7 @@ def test_the_floor_measures_the_page_it_records_not_the_page_the_browser_shows()
     title = [f for f in a if f.check_id == "check_page_title"]
     lang = [f for f in a if f.check_id == "check_page_language"]
     # On B's DOM both rules fail (no <title>, no lang); on A's they pass axe and ask the agent to judge "Alpha".
-    assert ran == 86 and not [f for f in title + lang if f.status.value == "fail"]
+    assert ran == 55 and not [f for f in title + lang if f.status.value == "fail"]  # every AA-target rule
     assert any("Alpha" in f.description for f in title)
     assert len(links_a) == 1 and links_a[0]["text"] == "Alpha link"  # A's probes describe A, not B
     assert title_now == "Alpha" and not b_swept  # the floor reloaded A; B was left alone
@@ -127,7 +176,7 @@ def test_eager_mode_is_todays_sweep():
 
     runs, items, swept, floor = asyncio.run(scenario())
     assert len(runs) == 86 and swept and floor == []
-    assert items["measurement"] == "eager" and items["unmeasured"] == [] and "run_checks" not in items["tests_to_run"]
+    assert items["measurement"] == "eager" and items["unmeasured"] == [] and all(i["measured"] for i in items["open"])
 
 
 def test_judging_a_measured_criterion_closes_it_in_lazy_mode_too():
@@ -154,3 +203,22 @@ def test_check_tools_are_scoped_like_the_criterion_tools():
     enum = forms["run_checks"].params_json_schema["properties"]["criteria"]["items"]["enum"]
     assert enum == [t.criterion for t in TOOLS_IN_ORDER if t.domain == "forms"] and len(enum) == 14
     assert all(REGISTRY[c].domain == "forms" for c in enum)
+
+
+def test_cross_page_checks_above_the_target_wait_for_an_agent_in_lazy_mode():
+    from agent_access.engine import run_site_tests
+
+    async def scenario():
+        async with lazy_audit() as audit:
+            audit.target_level = "A"   # 3.2.3 and 3.2.4 are AA, 3.2.6 is A
+            for key, html in (("file:a.html", A_PAGE), ("file:b.html", B_PAGE)):
+                await load_html_content(audit, html, key)
+                await measure_on_load(audit)
+                await run_sweep_remaining(audit, key)
+            await run_site_tests(audit)
+            return {key: audit.attempted_on(key) for key in ("file:a.html", "file:b.html")}
+
+    tried = asyncio.run(scenario())
+    for checks in tried.values():
+        assert REGISTRY["3.2.6"].name in checks
+        assert REGISTRY["3.2.3"].name not in checks and REGISTRY["3.2.4"].name not in checks

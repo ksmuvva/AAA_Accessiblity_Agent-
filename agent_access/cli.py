@@ -37,7 +37,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     source.add_argument("url", nargs="?", help="http(s) URL of the page to audit")
     source.add_argument("--html-file", type=Path, help="local HTML file to audit instead of a URL")
     parser.add_argument("--level", choices=["A", "AA", "AAA"], default="AA",
-                        help="conformance target (default AA); all 86 criteria are tested either way")
+                        help="conformance target (default AA); criteria above it are tested in eager measurement, "
+                             "and in lazy measurement only when an agent asks")
     parser.add_argument("--screen-reader", choices=["auto", "nvda", "emulated"], default="auto",
                         help="auto: real NVDA when installed (opens a visible browser; NVDA speaks aloud); "
                              "nvda: require NVDA; emulated: Chromium accessibility tree only")
@@ -67,9 +68,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "(default: reports/memory.sqlite; 'off' disables memory)")
     parser.add_argument("--delegation", choices=["handoffs", "tools"], default="handoffs",
                         help="how the lead reaches specialists in agent mode: SDK handoffs (default) or tool calls")
-    parser.add_argument("--measurement", choices=["eager", "lazy"], default="eager",
-                        help="eager (default): every automated check runs when a page loads; lazy: the agents choose "
-                             "which checks run, and code runs the rest before a page is declared done")
+    parser.add_argument("--measurement", choices=["eager", "lazy"], default="lazy",
+                        help="lazy (default): the agents choose which checks run, and code runs the remaining checks at "
+                             "the target level before a page is declared done (criteria above the target run only if an "
+                             "agent asks); eager: every automated check runs when a page loads")
     parser.add_argument("--skip-review", action="store_true", help="don't run the reviewer on failures (cheaper, less reliable)")
     parser.add_argument("--model", help="OpenAI model name (default: $OPENAI_MODEL or the SDK default)")
     parser.add_argument("--reviewer-model",
