@@ -370,6 +370,16 @@ def check_link_purpose_in_context(ctx: Ctx) -> None:
     """Judge whether each link's purpose is clear from its text plus its context (sentence, list item, heading)."""
     ctx.axe()
     links = ctx.data("page").get("links", [])
+    # Vague links to different places that nothing tells apart: each alone in its element, under the same heading.
+    same = {}
+    for l in links:
+        if l.get("bare") and AMBIGUOUS_LINK.match(l["name"]):
+            same.setdefault((l["name"].lower(), l["heading"]), []).append(l)
+    for group in [g for g in same.values() if len({l["href"] for l in g}) > 1]:
+        ctx.fail(f"{len(group)} '{group[0]['name']}' links go to different places, and nothing in their context tells "
+                 "them apart: each is alone in its element, " + (f"under the same heading '{group[0]['heading']}'."
+                                                                 if group[0]["heading"] else "with no heading before it."),
+                 [l["selector"] for l in group], "; ".join(l["href"] for l in group[:5]))
     if vague := _vague_links(ctx):
         ctx.review(f"{len(vague)} link(s) have vague text; check the surrounding context makes them clear.",
                    [l["selector"] for l in vague], "; ".join(f"'{l['text']}' in '{l['context'][:60]}'" for l in vague[:5]))

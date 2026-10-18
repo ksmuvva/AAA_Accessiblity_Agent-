@@ -120,6 +120,20 @@ def test_english_phrase_lists_do_not_pass_other_languages():
     assert "English" in (found(audit, "2.2.1")[Status.PASS][0].evidence or "")
 
 
+def test_vague_links_nothing_tells_apart_fail():
+    """The eval's judgement_bad false pass: two "More" links, each alone in its paragraph under a heading that says
+    "Section", go to different places. A different heading (H80), surrounding text, or one destination is enough."""
+    def links(body):
+        return descriptions(judge(f'<!doctype html><html lang="en"><head><title>Shop</title></head><body><main>'
+                                  f'<h1>Shop</h1>{body}</main></body></html>', "2.4.4"), "2.4.4", Status.FAIL)
+    assert any("2 'More' links go to different places" in d and "'Section'" in d for d in links(
+        '<h2>Section</h2><p>Annual report.</p><p><a href="#a">More</a></p>'
+        '<h2>Section</h2><p>New stores.</p><p><a href="#b">More</a></p>'))
+    assert not links('<h2>Annual report</h2><p><a href="#a">More</a></p><h2>New stores</h2><p><a href="#b">More</a></p>')
+    assert not links('<p>Annual report. <a href="#a">More</a></p><p>New stores. <a href="#b">More</a></p>')
+    assert not links('<p><a href="#a">More</a></p><p><a href="#a">More</a></p>')
+
+
 def _rule_on(criterion: str, **probe_data) -> list:
     """Run one rule on synthetic probe data (rules are pure functions over it), without a browser."""
     from agent_access.probes import ProbeResult

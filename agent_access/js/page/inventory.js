@@ -6,11 +6,20 @@ const bodyFont = (document.body && parseFloat(getComputedStyle(document.body).fo
 const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
 const all = [...document.querySelectorAll('body *')].slice(0, 6000);
 const headingSel = 'h1,h2,h3,h4,h5,h6,[role="heading"]';
-const links = [...document.querySelectorAll('a[href]'), ...shadowAll('a[href]')].filter(isVisible).slice(0, 200).map((a) => ({
+const headingEls = [...document.querySelectorAll(headingSel)];
+// The nearest heading before an element: with technique H80 it can supply a link's purpose.
+const headingBefore = (el) => {
+  const h = headingEls.filter((x) => x.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).pop();
+  return h ? text(h).slice(0, 80) : null;
+};
+const links =[...document.querySelectorAll('a[href]'), ...shadowAll('a[href]')].filter(isVisible).slice(0, 200).map((a) => ({
   selector: cssPath(a), text: text(a).slice(0, 80), name: linkName(a), aria_label: a.getAttribute('aria-label'), title: a.getAttribute('title'),
   href: a.href, new_window: a.target === '_blank',
   warns_new_window: /new (window|tab)|opens in|external/i.test(text(a) + ' ' + (a.getAttribute('aria-label') || '') + ' ' + (a.getAttribute('title') || '')),
   context: text(a.closest('p, li, td, h1, h2, h3, h4, h5, h6') || a).slice(0, 120),
+  // Nothing around it supplies its purpose: alone in its element, no aria-describedby, not in a table cell.
+  bare: text(a.parentElement || a) === text(a) && !a.hasAttribute('aria-describedby') && !a.closest('td, th'),
+  heading: headingBefore(a),
 }));
 const IMAGES = 'img, [role="img"], svg, input[type="image"], area';
 const images = [...document.querySelectorAll(IMAGES), ...shadowAll(IMAGES)].filter((el) => el.tagName === 'AREA' || isVisible(el)).slice(0, 80).map((el) => ({
@@ -50,6 +59,18 @@ const tables = [...document.querySelectorAll('table')].filter((t) => isVisible(t
     first_row_has_links: firstRow.some((c) => c.querySelector('a, button, img')),
     nested_tables: t.querySelectorAll('table').length, in_nav: !!t.closest('nav, header, footer') };
 });
+// Radios sharing a name with no group label: no fieldset with a legend, no named group or radiogroup (H71, ARIA17; 1.3.1).
+const radioSets = {};
+for (const r of document.querySelectorAll('input[type="radio"][name]')) {
+  if (!r.closest('[hidden]')) (radioSets[(r.form ? cssPath(r.form) : '') + ' ' + r.name] ||= []).push(r);
+}
+const groupLabel = (r) => {
+  const g = r.closest('fieldset, [role="radiogroup"], [role="group"]');
+  const legend = g?.tagName === 'FIELDSET' && g.querySelector(':scope > legend');
+  return g && ((legend && text(legend)) || g.getAttribute('aria-label') || idrefText(g.getAttribute('aria-labelledby'), g));
+};
+const ungroupedRadios = Object.values(radioSets).filter((rs) => rs.length > 1 && !groupLabel(rs[0])).slice(0, 10)
+  .map((rs) => ({ selector: cssPath(rs[0]), name: rs[0].name, options: rs.map((r) => (r.labels?.[0] ? text(r.labels[0]) : r.value).slice(0, 30)) }));
 // Letters separated by spaces to space them out visually ("W E L C O M E"): screen readers spell them out (F32, 1.3.2).
 const SPACED = /\b(?:[A-Za-z] ){4,}[A-Za-z]\b/;
 const spacedLetters = all.filter((el) => ownText(el) && isVisible(el) && !el.closest('pre, code, kbd, samp')
@@ -78,6 +99,7 @@ const textLinks = [...document.querySelectorAll('p a[href], li a[href], td a[hre
   text_color: rgbaText(getComputedStyle(a.parentElement).color) }));
 return {
   tables, spaced_letters: spacedLetters, fake_lists: fakeLists, pre_columns: preColumns, undecorated_text_links: textLinks,
+  ungrouped_radios: ungroupedRadios,
   title: document.title,
   page_lang: document.documentElement.getAttribute('lang'),
   main_text: text(main).slice(0, 30000),

@@ -227,6 +227,10 @@ def check_info_and_relationships(ctx: Ctx) -> None:
     if pre := page.get("pre_columns", []):
         ctx.review(f"{len(pre)} <pre> block(s) use runs of spaces to lay out columns; check whether it is tabular data "
                    "that needs a table (F33/F34).", pre)
+    if radios := page.get("ungrouped_radios", []):
+        ctx.review(f"{len(radios)} set(s) of radio buttons have no group label (a fieldset with a legend, or a named "
+                   "radiogroup): if a question or heading labels them visually, that relationship is lost (H71).",
+                   [g["selector"] for g in radios], "; ".join(f"{g['name']}: {', '.join(g['options'][:4])}" for g in radios[:5]))
     ctx.detail("tables", page.get("tables", []))
     # F68: a field announced with no name has no programmatically associated label. If visible label text sits
     # next to it, the relationship is lost to assistive technology.
