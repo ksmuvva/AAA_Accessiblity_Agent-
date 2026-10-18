@@ -55,6 +55,23 @@ def test_time_limits_and_interruptions_are_flagged():
     assert "dialog" in descriptions(audit, "2.2.4", Status.NEEDS_REVIEW)[0]
 
 
+def test_a_faked_clock_shows_what_an_idle_page_does():
+    """Left idle on a faked clock, a page warns at 25 minutes (with a control to stay signed in), then signs out at
+    30 minutes with a dialog and a navigation. A page with no timers has nothing to report in 20 hours."""
+    script = ("const start = Date.now(), make = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });"
+              "setTimeout(() => document.querySelector('#w').append(make('p', 'Your session will expire in 5 minutes.'), "
+              "make('button', 'Stay signed in')), 25 * 60000);"
+              "setInterval(() => { if (Date.now() - start > 30 * 60000) { alert('Signed out'); location.hash = 'out'; } }, 1000);")
+    page = '<html lang="en"><title>Account</title><main><h1>Account</h1><div id="w"></div>{}</main></html>'
+    audit = judge(page.format(f"<script>{script}</script>"), "2.2.1", "2.2.5", "2.2.6")
+    evidence = found(audit, "2.2.1")[Status.NEEDS_REVIEW][0].evidence
+    assert evidence.startswith("after 25 min idle: text 'Your session will expire in 5 minutes.'; controls Stay signed in; "
+                               "after 30 min idle: dialog 'Signed out'; went to about:blank#out")
+    assert "went to" in found(audit, "2.2.5")[Status.NEEDS_REVIEW][0].evidence
+    quiet = judge(page.format(""), "2.2.1")
+    assert "nothing happened in 20 hours" in found(quiet, "2.2.1")[Status.PASS][0].description
+
+
 def test_navigation_aids_pass_when_present():
     audit = judge("o_ways_page.html", "2.4.4", "2.4.5", "2.4.8")
     assert "navigation, search" in descriptions(audit, "2.4.5", Status.PASS)[0]

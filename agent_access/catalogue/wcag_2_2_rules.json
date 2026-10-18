@@ -955,6 +955,7 @@
                   "probes": [
                     "instrumentation",
                     "page",
+                    "timeouts",
                     "axe"
                   ]
                 }
@@ -1009,7 +1010,8 @@
                   ],
                   "probes": [
                     "instrumentation",
-                    "page"
+                    "page",
+                    "timeouts"
                   ]
                 }
               ],
@@ -1061,7 +1063,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "page"
+                    "page",
+                    "timeouts"
                   ]
                 }
               ],
@@ -1088,7 +1091,8 @@
                   "probes": [
                     "forms",
                     "instrumentation",
-                    "page"
+                    "page",
+                    "timeouts"
                   ]
                 }
               ],

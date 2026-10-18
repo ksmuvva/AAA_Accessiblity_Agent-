@@ -1,14 +1,17 @@
 """Interactive probes: hover/focus pop-ups, menus and dialogs, single-key shortcuts, pointer down-events,
-sliders, and the skip link.
+sliders, the skip link, and inactivity on a faked clock.
 
 Every probe here runs inside AuditContext.network_guard (no server writes, no navigation away) and restores
-the page afterwards. Triggers whose names suggest a destructive action (delete, buy, submit...) are skipped.
+the page afterwards, except `timeouts`, which runs in a browser context of its own. Triggers whose names suggest
+a destructive action (delete, buy, submit...) are skipped.
 `hover` and `disclosures` accept targets=[selectors] so agents can re-test elements auto-detection missed.
 """
 
 from __future__ import annotations
 
-from agent_access.context import AuditContext
+import asyncio
+
+from agent_access.context import SAFE_METHODS, AuditContext, base_page_key
 from agent_access.intent import DESCRIBE_JS, submits
 from agent_access.jsassets import js
 from agent_access.probes import collect, probe
@@ -338,3 +341,52 @@ async def skip_link(audit: AuditContext) -> dict:
     if audit.can_restore():
         await audit.restore_page()
     return {"skip_link": link, **lands}
+
+
+IDLE_MINUTES = [*range(5, 61, 5), 20 * 60]  # every 5 minutes for an hour, then 20 hours (WCAG's 20-hour exception)
+
+
+async def _cut(route) -> None:
+    await (route.continue_() if route.request.method in SAFE_METHODS else route.abort())
+
+
+@probe("timeouts")
+async def timeouts(audit: AuditContext) -> dict:
+    """The page left idle on a faked clock: each new time-limit warning (with any control to extend it), dialog and
+    navigation, at the idle time it happened. A clock can't be uninstalled, so this loads the page again in a browser
+    context of its own, with the run's cookies, where only GET requests go out and WebSockets reach nothing. A
+    jump fires each due timer once, hence the 5-minute steps. Server-side session expiry can't be faked."""
+    main = await audit.page()
+    context = await main.context.browser.new_context(viewport=main.viewport_size, service_workers="block",
+                                                     storage_state=await main.context.storage_state())
+    try:
+        await context.route("**/*", _cut)
+        await context.route_web_socket("**/*", lambda ws: None)
+        page = await context.new_page()
+        dialogs, moves = [], []
+        page.on("dialog", lambda d: (dialogs.append(d.message[:120]), asyncio.ensure_future(d.dismiss())))
+        page.on("framenavigated", lambda f: moves.append(f.url) if f == page.main_frame else None)
+        await page.clock.install()
+        key = base_page_key(audit.current_url)
+        await (page.set_content(audit.inline_html[key]) if key in audit.inline_html else page.goto(key, wait_until="load"))
+        moves.clear()
+        seen, events, idle = set((await page.evaluate(js("page/idle_text")))["warnings"]), [], 0
+        for minutes in IDLE_MINUTES:
+            await page.clock.fast_forward((minutes - idle) * 60_000)
+            idle = minutes
+            await page.wait_for_timeout(250)
+            try:
+                now = await page.evaluate(js("page/idle_text"))
+            except Exception:  # the page is navigating away
+                now = {"warnings": [], "controls": []}
+            new = [w for w in now["warnings"] if w not in seen]
+            seen.update(new)
+            if new or dialogs or moves:
+                events.append({"idle_minutes": minutes, "warnings": new[:3], "controls": now["controls"] if new else [],
+                               "dialogs": dialogs[:3], "navigated_to": moves[-1] if moves else None})
+                dialogs.clear()
+            if moves:
+                break
+        return {"events": events}
+    finally:
+        await context.close()
