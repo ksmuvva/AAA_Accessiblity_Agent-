@@ -145,9 +145,10 @@ def test_caption_cues_are_read():
 
     video = "data:video/webm;base64," + base64.b64encode((FIXTURES / "minute.webm").read_bytes()).decode()
 
-    def captions(src):
+    def captions(*srcs):
+        tracks = "".join(f'<track kind="captions" srclang="en" src="{src}">' for src in srcs)
         audit = judge(f'<html lang="en"><title>Talk</title><main><h1>Talk</h1><video id="talk" controls src="{video}">'
-                      f'<track kind="captions" srclang="en" src="{src}"></video></main></html>', "1.2.2")
+                      f'{tracks}</video></main></html>', "1.2.2")
         return {s: [f.evidence or f.description for f in fs] for s, fs in found(audit, "1.2.2").items()}
 
     def vtt(*spans):
@@ -157,6 +158,7 @@ def test_caption_cues_are_read():
     assert set(captions(vtt((0, 20), (20, 40), (40, 60)))) == {Status.PASS}
     assert Status.FAIL in captions(vtt()) and Status.FAIL in captions("http://127.0.0.1:9/talk.vtt")
     assert captions(vtt((0, 30)))[Status.NEEDS_REVIEW] == ["#talk: 30-60s"]
+    assert set(captions(vtt((0, 10), (10, 20), (20, 30)), vtt((0, 60)))) == {Status.PASS}  # coverage, not cue count
     assert Status.NEEDS_REVIEW in (unresolved := captions("talk.vtt")) and Status.FAIL not in unresolved
 
 

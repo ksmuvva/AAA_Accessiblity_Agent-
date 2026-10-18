@@ -121,7 +121,7 @@ def check_prerecorded_captions(ctx: Ctx) -> None:
     for v in videos:
         if not (caps := [t for t in v["tracks"] if "state" in t]):
             continue
-        best = max(caps, key=lambda t: t["cues"])
+        best = min(caps, key=lambda t: (not t["cues"], len(t["gaps"]), -t["cues"]))  # cues, then fewest gaps
         if best["cues"]:
             gappy += [(v, best)] if best["gaps"] else []
         elif all(t["state"] == "loaded" or t["state"] == "error" and t["src"].startswith(("http:", "https:")) for t in caps):
