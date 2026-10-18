@@ -199,3 +199,12 @@ def test_frames_and_shadow_roots_are_measured_with_selectors_the_tools_can_use()
     assert counts == {"iframe >> internal:control=enter-frame >> img": 1, "my-card >> img": 1}
     from audit_helpers import data
     assert "html > body > main > my-card >> a" in {link["selector"] for link in data(audit, "page")["links"]}
+
+
+def test_a_pop_up_shown_after_a_delay_is_still_tested():
+    # It appears 0.6 s after hover, later than the fixed 0.4 s wait the probe used to make.
+    html = """<!doctype html><html lang="en"><head><title>Tips</title><style>#tip{position:absolute;top:40px}</style></head>
+<body><main><h1>Tips</h1><button id="b" aria-describedby="tip">Help</button><div id="tip" role="tooltip" hidden>Saved</div>
+<script>let t; b.addEventListener('mouseenter', () => { t = setTimeout(() => { tip.hidden = false; }, 600); });
+b.addEventListener('mouseleave', () => { clearTimeout(t); });</script></main></body></html>"""
+    assert found(judge(html, "1.4.13"), "1.4.13").get(Status.FAIL)   # not dismissible with Escape

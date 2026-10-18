@@ -11,11 +11,11 @@ from agent_access.context import AuditContext
 from agent_access.intent import destroys
 from agent_access.jsassets import js
 from agent_access.probes import probe
-from agent_access.probes.interaction import newly_visible, visible_ids
+from agent_access.probes.interaction import newly_visible, settle, visible_ids
 
 MAX_FORMS = 4
 MAX_CHANGE_CONTROLS = 8
-SUBMIT_WAIT_MS = 1000
+SUBMIT_WAIT_MS = 3000   # at most: validation messages that come back from a script or server
 NO_SUBMIT = "no way to submit found"
 # Fields that usually collect information about the user, so 1.3.5 needs an autocomplete token.
 PERSONAL_FIELD_PATTERN = (
@@ -92,7 +92,7 @@ async def submit_test(audit: AuditContext, form: str | None, mode: str) -> dict:
         filled = await _fill(page, root, mode)
         how = await _submit(root, is_form)
         if how != NO_SUBMIT:
-            await page.wait_for_timeout(SUBMIT_WAIT_MS)
+            await settle(page, SUBMIT_WAIT_MS)
             # Live-region text that was there before (a cookie notice, a cart count) is not this form's error message.
             if state := await page.evaluate(js("forms/error_state"), form):
                 state["alerts"] = [t for t in state["alerts"] if t not in live_before]
@@ -126,7 +126,7 @@ async def change_test(audit: AuditContext, form: str | None) -> dict:
                     await control.select_option(index=1 if current != 1 else 0, timeout=2000)
                 else:
                     await control.check(timeout=2000)
-                await page.wait_for_timeout(500)
+                await settle(page)
                 new = blocked[seen:]
                 changes.append({"control": selector, "navigation": [b for b in new if b.endswith("(navigation)")][:1],
                                 "requests": [b for b in new if not b.endswith("(navigation)")][:2],

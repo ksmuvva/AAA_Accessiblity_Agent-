@@ -20,6 +20,12 @@ SHORTCUT_KEYS = ["s", "/", "?", "j", "k", "n", "p", "f", "m", "g", "c", "1"]
 PAGE_STATE_JS = ("() => ({ scroll: scrollY, hash: location.hash, "
                  "focus: document.activeElement && document.activeElement !== document.body ? document.activeElement.tagName : null })")
 BLUR_JS = "() => { document.activeElement && document.activeElement.blur(); }"
+SETTLE_JS = js("page/settle")
+
+
+async def settle(page, cap_ms: int = 1500) -> int:
+    """Wait until the page settles after an action (quiet DOM, no transition, no short timer), at most `cap_ms`."""
+    return await page.evaluate(SETTLE_JS, [150, cap_ms])
 
 
 # ---------------------------------------------------------------- shared change detection
@@ -83,7 +89,7 @@ async def _hover_test(page, selector: str) -> dict | None:
         await trigger.hover(timeout=3000)
     except Exception:
         return None
-    await page.wait_for_timeout(400)
+    await settle(page)
     revealed = await newly_visible(page, before)
     if not revealed:
         return None
@@ -111,7 +117,7 @@ async def _focus_test(page, selector: str) -> dict | None:
         await trigger.focus(timeout=2000)
     except Exception:
         return None
-    await page.wait_for_timeout(300)
+    await settle(page)
     revealed = await newly_visible(page, before)
     if not revealed:
         return None
@@ -168,14 +174,14 @@ async def _test_trigger(page, selector: str, name: str) -> dict:
     for key in ("Enter", "Space"):
         await trigger.focus(timeout=2000)
         await page.keyboard.press(key)
-        await page.wait_for_timeout(400)
+        await settle(page)
         opened, revealed = await _opened(page, selector, before_ids, before_state)
         if opened:
             opened_by = key
             break
     if not opened_by:
         await trigger.click(timeout=3000)
-        await page.wait_for_timeout(400)
+        await settle(page)
         opened, revealed = await _opened(page, selector, before_ids, before_state)
         opened_by = "mouse only" if opened else None
     result["opened_by"] = opened_by
@@ -193,7 +199,7 @@ async def _test_trigger(page, selector: str, name: str) -> dict:
             result["focus_contained"] = await page.evaluate(js("interaction/focus_inside"), dialog["dialog_selector"])
         result["close_button"] = dialog["close_button"]
     await page.keyboard.press("Escape")  # Escape should close it; focus should then return to the trigger
-    await page.wait_for_timeout(400)
+    await settle(page)
     still_open, _ = await _opened(page, selector, before_ids, before_state)
     result["closes_with_escape"] = not still_open
     if not still_open:
@@ -244,7 +250,7 @@ async def shortcuts(audit: AuditContext) -> dict:
             await page.evaluate(BLUR_JS)
             before = await _snapshot(page)
             await page.keyboard.press(key)
-            await page.wait_for_timeout(250)
+            await settle(page, 1000)
             effects = await _changes(page, before, blocked, 0)
         if effects:
             triggered.append({"key": key, "effects": effects})
