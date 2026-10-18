@@ -358,7 +358,7 @@ async def timeouts(audit: AuditContext) -> dict:
     jump fires each due timer once, hence the 5-minute steps. Server-side session expiry can't be faked."""
     main = await audit.page()
     context = await main.context.browser.new_context(viewport=main.viewport_size, service_workers="block",
-                                                     storage_state=await main.context.storage_state())
+                                                     storage_state=await main.context.storage_state(indexed_db=True))
     try:
         await context.route("**/*", _cut)
         await context.route_web_socket("**/*", lambda ws: None)
