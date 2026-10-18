@@ -235,7 +235,7 @@ async def save_login(url: str, path: Path) -> int:
         context = await browser.new_context()
         await (await context.new_page()).goto(url)
         await asyncio.to_thread(input, f"Sign in in the browser window, then press Enter here to save the session to {path} ")
-        await context.storage_state(path=str(path))
+        await context.storage_state(path=str(path), indexed_db=True)  # some sign-ins (Firebase) keep their token there
         await browser.close()
     print(f"Saved. Audit with: --storage-state {path}", file=sys.stderr)
     return 0
