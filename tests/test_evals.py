@@ -24,9 +24,8 @@ def test_score_and_metrics():
 
 
 def test_cases_are_well_formed():
-    spec = json.loads((HERE / "cases.json").read_text(encoding="utf-8"))
     catalogue = load_catalogue()
-    for case in spec["cases"]:
+    for case in [c for f in ("cases.json", "cases_v2_draft.json") for c in json.loads((HERE / f).read_text("utf-8"))["cases"]]:
         assert (HERE / case["file"]).is_file(), case["file"]
         for criterion, status in case["expected"].items():
             assert catalogue.get(criterion) is not None and status in ("pass", "fail"), (case["name"], criterion)
@@ -35,7 +34,7 @@ def test_cases_are_well_formed():
 def test_case_pages_carry_no_answers():
     """An agent can read the whole page (inspect_element returns its HTML, evaluate_js anything): comments, criterion
     numbers and verdict words in it would hand over the answers. Explanations live in cases.json notes."""
-    for path in (HERE / "cases").glob("*.html"):
+    for path in (HERE / "cases").rglob("*.html"):
         html = path.read_text(encoding="utf-8")
         assert "<!--" not in html and "/*" not in html, path.name
         assert not re.search(r"\b[1-4]\.[1-5]\.\d{1,2}\b", html), path.name

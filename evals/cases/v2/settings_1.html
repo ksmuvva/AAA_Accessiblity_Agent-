@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Account settings - Brightwave Mobile</title>
+  <style>
+    body { font: 16px/1.5 sans-serif; color: #222; background: #fff; margin: 2rem; }
+    .switch { display: inline-block; padding: .3rem .8rem; border: 2px solid #444; border-radius: 1rem; cursor: pointer; }
+    .switch.on { background: #146; color: #fff; }
+    .grid { display: grid; grid-template-columns: 8rem 8rem; }
+    .grid div { padding: .2rem; border-bottom: 1px solid #ccc; }
+    .head { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <header><nav aria-label="Main"><a href="#plan">Plan</a> <a href="#bills">Bills</a></nav></header>
+  <main>
+    <h1>Account settings</h1>
+    <h2>Alerts</h2>
+    <p>Email alerts <span class="switch" tabindex="0" id="alerts">Off</span></p>
+    <h2>Data use</h2>
+    <div class="grid">
+      <div class="head">Month</div><div class="head">Data used</div>
+      <div>August</div><div>4.2 GB</div>
+      <div>September</div><div>6.8 GB</div>
+    </div>
+    <h2>Limits</h2>
+    <form action="#saved">
+      <p><label for="v1">Value 1</label><br><input id="v1" name="v1" type="number" value="10"></p>
+      <p><label for="v2">Value 2</label><br><input id="v2" name="v2" type="number" value="80"></p>
+      <button type="submit">Save</button>
+    </form>
+  </main>
+  <script>
+    const s = document.getElementById('alerts');
+    const flip = () => { s.classList.toggle('on'); s.textContent = s.classList.contains('on') ? 'On' : 'Off'; };
+    s.addEventListener('click', flip);
+    s.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+  </script>
+</body>
+</html>

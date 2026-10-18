@@ -152,7 +152,7 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None) -> dict:
 
 
 async def main_async(args: argparse.Namespace) -> int:
-    spec = json.loads((HERE / "cases.json").read_text(encoding="utf-8"))
+    spec = json.loads(Path(args.cases_file).read_text(encoding="utf-8"))
     cases = [c for c in spec["cases"] if not args.cases or c["name"] in args.cases]
     if not cases:
         print("No matching cases.", file=sys.stderr)
@@ -196,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="Score the agent team's judgements against pages with known answers.")
     parser.add_argument("--cases", nargs="*", help="case names to run (default: all)")
+    parser.add_argument("--cases-file", default=str(HERE / "cases.json"),
+                        help="the cases and their answers (default evals/cases.json; evals/cases_v2_draft.json is unsigned)")
     parser.add_argument("--model", help="model for the auditors (default: $OPENAI_MODEL)")
     parser.add_argument("--reviewer-model", help="model for the reviewer (default: $OPENAI_REVIEWER_MODEL, else --model)")
     parser.add_argument("--skip-review", action="store_true", help="score without the reviewer")

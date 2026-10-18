@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Book a train seat - Northline Rail</title>
+  <style>
+    body { font: 16px/1.5 sans-serif; color: #222; background: #fff; margin: 2rem; }
+    .round { border-radius: 50%; width: 6rem; height: 6rem; background: #0b5; color: #fff; border: 0; }
+  </style>
+</head>
+<body>
+  <header><nav aria-label="Main"><a href="#trains">Trains</a> <a href="#help">Help</a></nav></header>
+  <main>
+    <h1>Book a seat</h1>
+    <form id="booking" action="#booked" novalidate>
+      <p><label for="from">From</label><br><input id="from" name="from" autocomplete="off"></p>
+      <p><label for="to">To</label><br><input id="to" name="to" autocomplete="off"></p>
+      <p><label for="day">Date</label><br><input id="day" name="day" type="text"></p>
+      <p>Seat class</p>
+      <p><input type="radio" id="std" name="cls" value="standard" checked><label for="std">Standard</label>
+         <input type="radio" id="first" name="cls" value="first"><label for="first">First</label></p>
+      <p>Press the round button below to continue.</p>
+      <button class="round" type="submit" tabindex="1">Continue</button>
+      <p id="msg" role="alert"></p>
+    </form>
+  </main>
+  <script>
+    document.getElementById('booking').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const ok = /^\d{2}\/\d{2}\/\d{4}$/.test(document.getElementById('day').value);
+      document.getElementById('msg').textContent = ok ? 'Seat held for 10 minutes.' : 'Date not recognised.';
+    });
+  </script>
+</body>
+</html>

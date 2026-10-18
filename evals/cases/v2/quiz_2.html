@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Road signs practice test - DriveReady</title>
+  <style> body { font: 16px/1.5 sans-serif; color: #222; background: #fff; margin: 2rem; } </style>
+</head>
+<body>
+  <header><nav aria-label="Main"><a href="#tests">Tests</a> <a href="#progress">Progress</a></nav></header>
+  <main>
+    <h1>Road signs practice test</h1>
+    <p>You have 60 seconds. You can turn the time limit off or add time at any point.</p>
+    <p><button type="button" id="off">Turn off the time limit</button> <button type="button" id="more">Add 60 seconds</button></p>
+    <form id="quiz" action="#results">
+      <fieldset>
+        <legend>What does a red circle with a white bar mean?</legend>
+        <input type="radio" id="a1" name="q1" value="a"><label for="a1">No entry</label>
+        <input type="radio" id="a2" name="q1" value="b"><label for="a2">No parking</label>
+      </fieldset>
+      <button type="submit">Send answers</button>
+    </form>
+    <p id="clock" aria-live="polite"></p>
+  </main>
+  <script>
+    let left = 60;
+    const tick = setInterval(() => { left -= 1; document.getElementById('clock').textContent = left + ' seconds left';
+      if (left <= 0) { clearInterval(tick); document.getElementById('quiz').innerHTML = '<p>Time is up. Answers sent.</p>'; } }, 1000);
+    document.getElementById('off').addEventListener('click', () => { clearInterval(tick); document.getElementById('clock').textContent = 'No time limit.'; });
+    document.getElementById('more').addEventListener('click', () => { left += 60; });
+  </script>
+</body>
+</html>
