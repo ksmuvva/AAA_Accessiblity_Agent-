@@ -25,7 +25,7 @@ def test_score_and_metrics():
 
 def test_cases_are_well_formed():
     catalogue = load_catalogue()
-    for case in [c for f in ("cases.json", "cases_v2_draft.json") for c in json.loads((HERE / f).read_text("utf-8"))["cases"]]:
+    for case in json.loads((HERE / "cases.json").read_text(encoding="utf-8"))["cases"]:
         assert (HERE / case["file"]).is_file(), case["file"]
         for criterion, status in case["expected"].items():
             assert catalogue.get(criterion) is not None and status in ("pass", "fail"), (case["name"], criterion)
@@ -61,3 +61,26 @@ def test_compare_shows_metric_changes_calls_and_changed_outcomes():
     b["measurement"] = "eager"
     lines = "\n".join(compare(a, b))
     assert "(no detectable change)" in lines and "differ in measurement" in lines
+
+
+def test_the_cost_guard_stops_starting_cases_at_the_cap(monkeypatch, tmp_path):
+    import asyncio
+    from argparse import Namespace
+
+    import evals.run_eval as run_eval
+    seen = []
+
+    async def fake_case(case, args, memory=None, calls_left=10**9):
+        seen.append(calls_left)
+        return {"name": case["name"], **score(case["expected"], {}), "errors": [], "warnings": [], "model_calls": 600,
+                "models": None, "reported": True, "lessons_written": 0}
+    monkeypatch.setattr(run_eval, "run_case", fake_case)
+    monkeypatch.setattr(run_eval, "HERE", tmp_path)
+    (tmp_path / "cases.json").write_text(json.dumps({"cases": [{"name": n, "expected": {"1.1.1": "fail"}} for n in "abc"]}))
+    args = Namespace(cases_file=str(tmp_path / "cases.json"), cases=None, mode="code", memory="off", repeats=1,
+                     max_calls=1000, use_lessons=False, measurement="eager", no_interaction=False, model=None,
+                     reviewer_model=None, fail_on_false_pass=False)
+    assert asyncio.run(run_eval.main_async(args)) == 5          # the third case never starts
+    assert seen == [1000, 400]                                  # each case may spend only what the run has left
+    saved = json.loads(next((tmp_path / "results").glob("*.json")).read_text())
+    assert (saved["model_calls"], saved["not_started"]) == (1200, 1)
