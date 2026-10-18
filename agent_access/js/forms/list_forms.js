@@ -24,6 +24,7 @@ return groups.slice(0, 10).map((g, i) => {
       return {
         selector: cssPath(el), tag: el.tagName.toLowerCase(), type: el.type, name: el.name || null,
         label: fieldLabel(el), placeholder: el.placeholder || null,
+        hint: idrefText(el.getAttribute('aria-describedby'), el) || null,
         visible_label: !!(el.labels && el.labels[0] && isVisible(el.labels[0])) || (el.getAttribute('aria-labelledby') || '')
           .split(/\s+/).some((id) => { const t = id && el.getRootNode().getElementById(id); return t && isVisible(t) && t.innerText.trim(); }),
         required: el.required || el.getAttribute('aria-required') === 'true',

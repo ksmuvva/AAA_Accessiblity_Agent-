@@ -27,7 +27,7 @@ from agent_access.team.runtime import run_config, settings
 from agent_access.team.specialists import unjudged_criteria
 from agent_access.team.summarizer import write_summary
 from agent_access.agent_tools.browser_tools import open_url, page_fingerprint, same_site_links
-from agent_access.context import AuditContext, is_state_key
+from agent_access.context import AuditContext, base_page_key, is_state_key
 from agent_access.models import AuditSummary, PagePick, SiteReport
 from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
 from agent_access.agent_tools.report_tools import compile_site_report
@@ -305,6 +305,10 @@ async def run_audit(
             audited.add(page_key)
             progress(f"Lead auditor: {page_key}")
             await _lead_runs(audit, page_key, model, max_turns, outcome, f"{page_key}: " if multi else "")
+            # A state the lead labelled there (a menu open, an error shown) is judged like a page, when it can be rebuilt.
+            for state in [k for k in audit.pages if k in audit.state_paths and base_page_key(k) == page_key]:
+                progress(f"Lead auditor: {state}")
+                await _lead_runs(audit, state, model, max_turns, outcome, f"{state}: ")
 
         if process:
             progress("Lead auditor: walking through the process...")

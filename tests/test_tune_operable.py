@@ -140,6 +140,16 @@ def test_vague_links_nothing_tells_apart_fail():
     assert not links('<p><a href="#a">More</a></p><p><a href="#a">More</a></p>')
 
 
+def test_generic_field_labels_fail_headings_and_labels():
+    """The eval's settings_1 false pass: fields labelled "Value 1" and "Value 2" were passed as descriptive."""
+    def fails(label):
+        html = ('<!doctype html><html lang="en"><head><title>Limits</title></head><body><main><h1>Limits</h1><form action="/l">'
+                f'<label for="v">{label}</label><input id="v" type="number"><button>Save</button></form></main></body></html>')
+        return descriptions(judge(html, "2.4.6"), "2.4.6", Status.FAIL)
+    assert fails("Value 1") and fails("Field 2:") and fails("Input")
+    assert not fails("Value of the order") and not fails("Monthly limit")
+
+
 def _rule_on(criterion: str, **probe_data) -> list:
     """Run one rule on synthetic probe data (rules are pure functions over it), without a browser."""
     from agent_access.probes import ProbeResult
