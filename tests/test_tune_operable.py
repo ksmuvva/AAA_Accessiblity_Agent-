@@ -176,3 +176,14 @@ def test_tab_walk_cut_short_by_a_frame_is_never_a_pass():
             assert findings, criterion   # never only the "no automated evidence" placeholder
             assert {f.status for f in findings} == {Status.NEEDS_REVIEW}, (criterion, [f.description for f in findings])
             assert any("#consent" in (f.evidence or "") for f in findings), criterion
+
+
+def test_a_black_or_red_focus_outline_is_an_indicator():
+    """The transparent-outline check matched any colour ending in ', 0)': rgb(0, 0, 0) and rgb(255, 0, 0) too, so a
+    black or red focus outline counted as none and failed 2.4.7. Only a transparent outline shows nothing."""
+    rings = {"black": "#000", "red": "#f00", "clear": "transparent"}
+    html = ('<html lang="en"><title>Links</title><style>a { display: inline-block; margin: 20px; color: #000 }'
+            + "".join(f" #{k}:focus {{ outline: 2px solid {v} }}" for k, v in rings.items()) + '</style><main><h1>Links</h1>'
+            + "".join(f'<a id="{k}" href="#{k}">{k.title()}</a>' for k in rings) + "</main></html>")
+    audit = judge(html, "2.4.7")
+    assert {s for f in found(audit, "2.4.7").get(Status.FAIL, []) for s in f.selectors} == {"#clear"}
