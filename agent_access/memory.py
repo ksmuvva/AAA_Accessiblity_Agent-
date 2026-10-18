@@ -38,7 +38,7 @@ from agent_access.context import AuditContext, base_page_key
 DEFAULT_PATH = Path("reports") / "memory.sqlite"
 MAX_TEXT = 300
 SITE_KINDS = ("profile", "judgement", "note", "overturn")
-LESSON_KINDS = ("false_pass", "false_fail", "misfire")
+LESSON_KINDS = ("false_pass", "false_na", "false_fail", "misfire")
 LESSON_SOURCES = ("eval", "reviewer")
 # Rows kept per host; older ones are pruned when a run is remembered.
 MAX_ROWS_PER_HOST = 1000
