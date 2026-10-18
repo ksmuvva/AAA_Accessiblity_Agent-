@@ -101,3 +101,19 @@ def test_an_errored_probe_never_yields_pass_or_not_applicable():
         ctx, _ = judge(audit, tool, {name: ProbeResult({}, "TimeoutError: page closed") for name in tool.uses})
         decided += [(tool.criterion, f.status) for f in ctx.findings if f.status in DECIDED]
     assert decided == []
+
+
+def test_an_auditor_that_passes_everything_cannot_hide_a_measured_failure():
+    from audit_helpers import judge as judge_fixture
+
+    criteria = ("1.1.1", "1.3.1", "1.4.3", "2.4.2", "3.1.1", "4.1.2")
+    audit = judge_fixture("bad_page.html", *criteria)
+    page = audit.pages[0]
+    measured = {f.wcag_criterion for f in audit.findings_for(page) if f.status is Status.FAIL and f.source != "agent"}
+    assert measured   # the fixture fails some of them by measurement
+    audit.current_url = page
+    for criterion in criteria:
+        add_manual_finding(audit, criterion, "pass", "Looks fine.", "Checked the page and the accessibility tree.")
+    apply_verdicts(audit.findings, ReviewResult(verdicts=[ReviewVerdict(finding_id=f.id, verdict="confirmed", reason="r")
+                                                          for f in audit.findings if f.source == "agent"]))
+    assert all(reported(audit, page)[c] is Status.FAIL for c in measured)

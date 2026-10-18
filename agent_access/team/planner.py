@@ -33,7 +33,7 @@ from agents.models.interface import Model
 from openai import APIError
 from pydantic import BaseModel, Field
 
-from agent_access.agent_tools.browser_tools import discover_links, open_url
+from agent_access.agent_tools.browser_tools import discover_links, open_url, same_site_links
 from agent_access.agent_tools.check_tools import measure_on_load, run_sweep_remaining
 from agent_access.agent_tools.planning import open_items
 from agent_access.agent_tools.report_tools import compile_site_report
@@ -177,6 +177,7 @@ class PlanState:
     skips: dict[str, dict] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     memory_counts: dict | None = None
+    lead_max_turns: int = LEAD_MAX_TURNS   # --max-turns, when given
 
 
 def _log(audit: AuditContext, action: str, **details) -> None:
@@ -195,11 +196,12 @@ def make_team(model, audit: AuditContext, reviewer_model=None):
 
 # ---------------------------------------------------------------- the lead on one page (enforced handback)
 
-async def run_lead_on(audit: AuditContext, state: PlanState, page_key: str, focus: str, max_turns: int = LEAD_MAX_TURNS) -> dict:
+async def run_lead_on(audit: AuditContext, state: PlanState, page_key: str, focus: str, max_turns: int | None = None) -> dict:
     """Work the lead (with its handoffs) on a page or a labelled state until get_open_items is done, with code mode's
     rule: the first run, one fresh continuation always, then more only while the previous run settled something, up to
     LEAD_RUNS_PER_PAGE runs. The page is reloaded (a state rebuilt) before each run, and a specialist that ends a run
     hands back to the lead. A page still open after that, or one that can't be loaded, is exhausted."""
+    max_turns = max_turns or state.lead_max_turns
     from agent_access.team.orchestrator import LEAD_RUNS_PER_PAGE, _back_to, continuation_prompt
 
     if audit.budget is not None and audit.budget.exhausted:
@@ -299,6 +301,20 @@ def _unaudited(audit: AuditContext, state: PlanState, *, skipped_ok: bool = True
     without the pages whose skip the skip reviewer accepted."""
     return [p for p in audit.pages if (p in state.opened or p in audit.state_paths) and p not in state.exhausted
             and not open_items(audit, p)["done"] and not (skipped_ok and state.skips.get(p, {}).get("verdict") == "accepted")]
+
+
+async def top_up_pages(audit: AuditContext, state: PlanState) -> None:
+    """The user's page count is a floor: when the planner opened fewer pages, open the start page's same-site links in
+    link order (as code mode fills the page picker's gaps) until it is met, no link is left, or the budget is spent."""
+    from agent_access.team.orchestrator import _back_to
+    if len(state.opened) >= state.min_pages or not await _back_to(audit, audit.pages[0]):
+        return
+    for link in (await same_site_links(audit, 100)).get("links", []):
+        if len(state.opened) >= state.min_pages or (audit.budget is not None and audit.budget.exhausted):
+            break
+        if "error" not in (result := await open_and_measure(audit, link["url"])):
+            state.opened.add(result["page"])
+            _log(audit, "pages_floor", page=result["page"])
 
 
 def _finish_blockers(audit: AuditContext, state: PlanState) -> dict:
@@ -484,12 +500,13 @@ def planner_tools(state: PlanState) -> list:
                                       run_config=run_config(audit, "WCAG audit: explorer"))
             out = result.final_output
             report = out.model_dump(mode="json") if hasattr(out, "model_dump") else {"result": str(out)}
-            # Only an exploration that finished covers a flow; a failed one leaves it owed, so it can be retried.
-            state.explored_flows.update(f for f in state.flows if f.strip().lower() in goal.strip().lower())
+            covered = [f for f in state.flows if f.strip().lower() in goal.strip().lower()]
         except AGENT_ERRORS as exc:
             state.errors.append(_err("explorer", exc))
-            report = {"error": f"The explorer stopped early: {type(exc).__name__}."}
+            report, covered = {"error": f"The explorer stopped early: {type(exc).__name__}."}, []
         new_states = [p for p in audit.pages if p not in before]
+        if new_states:   # only an exploration that finished and reached a state covers a flow; otherwise it stays owed
+            state.explored_flows.update(covered)
         _log(audit, "explore", page=page_key, goal=goal, states=new_states)
         return json.dumps({**report, "labelled_states": new_states,
                            "next": "audit_pages the labelled states (finish waits for the ones that can be rebuilt), or "
@@ -628,7 +645,8 @@ def build_planner(model: str | Model | None, state: PlanState) -> Agent[AuditCon
 # ---------------------------------------------------------------- the run
 
 async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str | None = None, model: str | Model | None = None,
-                            reviewer_model: str | Model | None = None, review: bool = True, progress=print):
+                            reviewer_model: str | Model | None = None, review: bool = True, progress=print,
+                            lead_max_turns: int | None = None):
     """Plan and run one audit with the planner agent, then apply the code floors. Returns an AuditOutcome.
 
     The caller (orchestrator.run_audit) has resolved the models, started NVDA if wanted, and opened and measured the
@@ -644,8 +662,14 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
     outcome = AuditOutcome(report=None)
     state = PlanState(team=make_team(model, audit, reviewer_model), model=model, reviewer_model=reviewer_model, review=review,
                       min_pages=max(1, pages), max_pages=max(max(1, pages), budget.max_pages),
-                      opened={audit.current_url}, flows=[process] if process else [])
+                      opened={audit.current_url}, flows=[process] if process else [],
+                      lead_max_turns=lead_max_turns or LEAD_MAX_TURNS)
 
+    need = 18 + 67 * state.min_pages + 147 * len(state.flows)   # rough calls: fixed, per page, per explored flow
+    if budget.working_calls < need:
+        outcome.warnings.append(f"The budget ({budget.working_calls} working model calls) is below the rough estimate "
+                                f"for this goal ({need}), so some pages or criteria may stay unaudited: raise --budget-calls.")
+        progress(outcome.warnings[-1])
     progress("Audit planner: planning the run...")
     prompt = (f"Start page: {audit.current_url}. The user asked for at least {state.min_pages} page(s) at Level "
               f"{audit.target_level}." + (f" Flow to explore: {process}" if process else ""))
@@ -670,8 +694,12 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
     except AGENT_ERRORS as exc:
         outcome.errors.append(_err("audit planner", exc))
 
-    # Floors: the lead is worked on every page and rebuildable state it still owes while budget remains; then site
-    # tests, review, summary.
+    # Floors: the pages the user asked for, and the lead worked on every page and rebuildable state it still owes while
+    # budget remains; then site tests, review, summary.
+    try:
+        await top_up_pages(audit, state)
+    except Exception as exc:  # a floor never fails the run
+        outcome.errors.append(_err("pages floor", exc))
     floored: set[str] = set()
     # Recomputed after every run: a lead run can add states (an exploration it delegated) that are owed too.
     while not budget.exhausted and (pending := [p for p in _unaudited(audit, state) if p not in floored]):
@@ -685,7 +713,10 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
             await run_sweep_remaining(audit)
     if not state.site_tests_done and audit.swept:
         await run_site_tests(audit)
-    outcome.warnings = coverage_warnings(audit, accepted_skips(state))
+    outcome.warnings += coverage_warnings(audit, accepted_skips(state))
+    if len(state.opened) < state.min_pages:
+        outcome.warnings.append(f"Asked for {state.min_pages} pages, audited {len(state.opened)}: the site has no more "
+                                "same-site links from the start page, or the budget ran out.")
     if not state.reviewed and not budget.hard_exhausted:
         progress("Reviewer: verifying failures, judged passes and not-applicable verdicts...")
         await _review(audit, state)

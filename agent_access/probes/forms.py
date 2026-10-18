@@ -40,7 +40,7 @@ async def _fill(page, root, mode: str) -> list[str]:
     fields = root.locator(TEXT_FIELDS)
     for i in range(min(await fields.count(), 25)):
         try:
-            kind = await fields.nth(i).evaluate("(el) => el.tagName === 'TEXTAREA' ? 'textarea' : el.type")
+            kind = await fields.nth(i).evaluate("(el) => el.tagName === 'TEXTAREA' ? 'textarea' : el.type", timeout=2000)
             if kind in FILL_INVALID:
                 await fields.nth(i).fill("" if mode == "empty" else FILL_INVALID[kind], timeout=2000)
                 changed.append(kind)
@@ -85,6 +85,7 @@ async def submit_test(audit: AuditContext, form: str | None, mode: str) -> dict:
     if is_form and (danger := destroys(await root.evaluate(FORM_INTENT_JS))):
         return {"form": form, "mode": mode, "skipped": f"Not submitted: it looks destructive ({danger})."}
     before = await visible_ids(page)
+    live_before = set((await page.evaluate(js("forms/error_state"), form) or {}).get("alerts", []))
     has_required = await page.evaluate(js("forms/has_required"), form)
     state, new_text = None, []
     async with audit.network_guard() as blocked:
@@ -92,7 +93,9 @@ async def submit_test(audit: AuditContext, form: str | None, mode: str) -> dict:
         how = await _submit(root, is_form)
         if how != NO_SUBMIT:
             await page.wait_for_timeout(SUBMIT_WAIT_MS)
-            state = await page.evaluate(js("forms/error_state"), form)
+            # Live-region text that was there before (a cookie notice, a cart count) is not this form's error message.
+            if state := await page.evaluate(js("forms/error_state"), form):
+                state["alerts"] = [t for t in state["alerts"] if t not in live_before]
             new_text = [{"selector": n["selector"], "text": n["text"]} for n in await newly_visible(page, before) if n["text"]]
     if audit.can_restore():
         await audit.restore_page()
@@ -114,12 +117,12 @@ async def change_test(audit: AuditContext, form: str | None) -> dict:
         for i in range(min(await controls.count(), MAX_CHANGE_CONTROLS)):
             control = controls.nth(i)
             try:
-                selector = await control.evaluate(js("forms/css_path"))
+                selector = await control.evaluate(js("forms/css_path"), timeout=2000)
                 url_before, seen = page.url, len(blocked)
-                if await control.evaluate("(el) => el.tagName") == "SELECT":
+                if await control.evaluate("(el) => el.tagName", timeout=2000) == "SELECT":
                     if await control.locator("option").count() < 2:
                         continue
-                    current = await control.evaluate("(el) => el.selectedIndex")
+                    current = await control.evaluate("(el) => el.selectedIndex", timeout=2000)
                     await control.select_option(index=1 if current != 1 else 0, timeout=2000)
                 else:
                     await control.check(timeout=2000)

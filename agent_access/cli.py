@@ -88,8 +88,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--no-trace", action="store_true", help=argparse.SUPPRESS)  # the default now; kept for old scripts
     parser.add_argument("--headed", action="store_true", help="show the browser window")
     parser.add_argument("--output-dir", type=Path, default=Path("reports"), help="where to write reports")
-    parser.add_argument("--max-turns", type=int, default=TURNS_PER_PAGE,
-                        help=f"safety cap on each lead-auditor run; each page gets its own (default {TURNS_PER_PAGE})")
+    parser.add_argument("--max-turns", type=int,
+                        help=f"safety cap on each lead-auditor run; each page gets its own (default {TURNS_PER_PAGE} in "
+                             "code mode, 120 in agent mode)")
     args = parser.parse_args(argv)
     for flag, value in (("--process", args.process), ("--allow-submit", args.allow_submit), ("--allow-offsite", args.allow_offsite)):
         if value and args.no_interaction:
@@ -98,7 +99,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error(f"--budget-calls must exceed {Budget.reserve_calls}, --budget-minutes must be positive, "
                      "--max-pages must be at least 1")
     args.max_pages = max(args.max_pages, args.pages)
-    if args.max_turns < 1:
+    if args.max_turns is not None and args.max_turns < 1:
         parser.error("--max-turns must be at least 1")
     if any(not prefix.startswith(("http://", "https://")) for prefix in args.allow_submit or ()):
         parser.error("--allow-submit takes absolute URLs, e.g. https://test.shop.example/api/checkout")

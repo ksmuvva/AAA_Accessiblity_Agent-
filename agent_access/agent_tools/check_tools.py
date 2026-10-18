@@ -122,7 +122,7 @@ async def run_checks_now(audit: AuditContext, criteria: list[str]) -> dict:
         "ran": ran,
         "open_after": items["open_count"],
         "unmeasured_after": len(items["unmeasured"]),
-        "next": ("Judge what you ran: get_criterion for details and evidence, then record_findings. "
+        "next": ("Judge what you ran from these results, then record_findings. "
                  + (f"{len(items['unmeasured'])} criteria at the target level are still unmeasured; run_checks them, or "
                     "run_all_checks." if items["unmeasured"] else "Every criterion at the target level has been measured.")),
     }
@@ -157,7 +157,8 @@ def check_tools(criteria: list[str], *, include_all: bool) -> list[FunctionTool]
         "Run the automated checks for these criteria on the loaded page now and record their findings (replacing earlier "
         "ones). Each check measures only what its rule needs, so this is the cheap way to measure a few criteria before "
         "judging them. get_open_items marks criteria whose check hasn't run as measured: false. Returns each check's "
-        "result, findings, details and what you must judge; then read details with get_criterion and record_findings."))]
+        "result, findings, details and what you must judge, so it also reads several criteria at once (a check that "
+        "already ran re-runs from cached measurements); then record_findings."))]
     if include_all:
         async def run_all_checks(ctx: RunContextWrapper[AuditContext]) -> str:
             return await call_tool(ctx, run_all_checks_now)

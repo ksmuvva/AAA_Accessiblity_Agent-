@@ -4,17 +4,19 @@ while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.ac
 if (!el || el === document.body || el === document.documentElement) return null;
 const props = ['outline-style', 'outline-width', 'outline-color', 'box-shadow', 'border-top-color', 'border-bottom-color',
   'border-top-width', 'border-bottom-width', 'background-color', 'color', 'text-decoration-line', 'transform', 'opacity'];
+// A transparent outline (often added for forced-colours mode) shows nothing, so it is no indicator.
+const clear = (c) => c === 'transparent' || /,\s*0(\.0*)?\)$/.test(c);
 const snap = () => {
   const out = [];
   for (const [node, pseudo] of [[el, null], [el, '::before'], [el, '::after'], [el.parentElement, null]]) {
     if (!node) continue;
     const s = getComputedStyle(node, pseudo);
-    out.push(...props.map((p) => s.getPropertyValue(p)));
+    out.push(...props.map((p) => (p.startsWith('outline') && clear(s.outlineColor) ? '' : s.getPropertyValue(p))));
   }
   return out.join('|');
 };
 const fs = getComputedStyle(el);
-const hasOutline = fs.outlineStyle !== 'none' && parseFloat(fs.outlineWidth) > 0;
+const hasOutline = fs.outlineStyle !== 'none' && parseFloat(fs.outlineWidth) > 0 && !clear(fs.outlineColor);
 const focusedStyles = snap();
 // Measure obscuring while focused (the browser has scrolled it into view).
 const r = el.getBoundingClientRect();

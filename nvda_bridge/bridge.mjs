@@ -56,6 +56,7 @@ async function handle({ cmd, args = {} }) {
 }
 
 const rl = readline.createInterface({ input: process.stdin });
+let stopped = false;
 for await (const line of rl) {
   if (!line.trim()) continue;
   let msg;
@@ -65,6 +66,8 @@ for await (const line of rl) {
   } catch (err) {
     reply({ id: msg?.id ?? null, ok: false, error: String(err?.message ?? err) });
   }
-  if (msg?.cmd === "stop") break;
+  if (msg?.cmd === "stop" && (stopped = true)) break;
 }
+// stdin closed without "stop" (Python crashed or was killed): don't leave NVDA running and speaking.
+if (!stopped) await nvda.stop().catch(() => {});
 process.exit(0);

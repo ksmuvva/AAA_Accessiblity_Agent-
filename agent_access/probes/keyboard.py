@@ -12,7 +12,7 @@ from agent_access.context import AuditContext
 from agent_access.jsassets import js
 from agent_access.probes import probe
 
-MAX_TAB_STOPS = 80
+MAX_TAB_STOPS = 200   # a walk cut at the cap is stopped_early: its passes cover only part of the page
 # Inside an iframe, focus moves through the frame's own content while the parent document keeps reporting the
 # iframe as active, so many more presses are allowed there before calling it a trap.
 MAX_IFRAME_TABS = 40
@@ -24,7 +24,8 @@ async def keyboard(audit: AuditContext) -> dict:
     await page.evaluate(js("keyboard/reset"))
     stops: list[dict] = []
     seen: set[int] = set()
-    stuck_on = stuck_in_iframe = None
+    stuck_on = stuck_in_iframe = cycle = None
+    capped = False
     focus_navigations: list[dict] = []  # 3.2.1: moving focus must not navigate; the guard records attempts
     focus_removed: list[dict] = []
     repeat = 0
@@ -57,10 +58,14 @@ async def keyboard(audit: AuditContext) -> dict:
                     break
                 continue
             if len(stops) >= MAX_TAB_STOPS:
+                capped = True
                 break
             repeat = 0
-            if stop["id"] in seen:
-                break  # Wrapped around to an element already visited.
+            if stop["id"] in seen:   # wrapped round to the first stop, or cycling among a few (a trap)
+                if stop["id"] != stops[0]["id"]:
+                    cycle = {**stop, "after": len(stops), "in_modal": await page.evaluate(
+                        "() => !!document.activeElement?.closest('dialog[open], [aria-modal=\"true\"]')")}
+                break
             seen.add(stop["id"])
             stops.append(stop)
     mouse_only = await page.evaluate(js("keyboard/mouse_only"), None)
@@ -70,6 +75,8 @@ async def keyboard(audit: AuditContext) -> dict:
         "focus_order": [f"{s['tag']} '{s['name']}'" for s in stops[:40]],
         "stuck_on": stuck_on,
         "stuck_in_iframe": stuck_in_iframe,
+        "cycle": cycle,
+        "stopped_early": capped,
         "focus_navigations": focus_navigations,
         "focus_removed": focus_removed,
         "mouse_only": mouse_only,

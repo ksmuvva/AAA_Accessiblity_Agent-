@@ -166,13 +166,19 @@ async def same_site_links(audit: AuditContext, limit: int = 30) -> dict:
     return {"page_url": page.url, "total_found": len(seen), "links": links}
 
 
+def _same_document(a: str, b: str) -> bool:
+    """A #fragment change (a skip link, an anchor) stays on the page; a hash route (#/..., #!...) or a new URL doesn't."""
+    (a, fa), (b, fb) = urldefrag(a), urldefrag(b)
+    return a == b and (fa == fb or not any(f.startswith(("/", "!")) for f in (fa, fb)))
+
+
 async def _after_action(audit: AuditContext) -> dict:
     page = await audit.page()
     try:
         await page.wait_for_load_state("load", timeout=ACTION_TIMEOUT_MS)
     except Exception:
         pass  # Not every action navigates.
-    if urlparse(page.url).scheme in ("http", "https") and not (audit.current_url or "").startswith(page.url):
+    if urlparse(page.url).scheme in ("http", "https") and not _same_document(base_page_key(audit.current_url or ""), page.url):
         audit.set_current(page.url)
     return {"page_url": audit.current_url, "title": await page.title()}
 

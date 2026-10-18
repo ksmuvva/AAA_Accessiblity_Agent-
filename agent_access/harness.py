@@ -15,7 +15,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from agent_access.budget import Budget
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+STOP_GRACE_SECONDS = 15   # after SIGTERM, the worker writes its partial report
 
 
 @dataclass(frozen=True)
@@ -61,8 +64,8 @@ class HarnessConfig:
             value = getattr(self, name)
             if type(value) is not int or value < 1:
                 raise ValueError(f'{name} must be a positive integer')
-        if self.pages > self.max_pages or self.budget_calls <= 60:
-            raise ValueError('max_pages must cover pages; budget_calls must exceed the 60-call reserve')
+        if self.pages > self.max_pages or self.budget_calls <= Budget.reserve_calls:
+            raise ValueError(f'max_pages must cover pages; budget_calls must exceed the {Budget.reserve_calls}-call reserve')
         if self.html_file and self.pages != 1:
             raise ValueError('Local HTML supports one page')
         for name in ('budget_minutes', 'timeout_seconds'):
@@ -119,7 +122,12 @@ async def stop_process(process) -> None:
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         await killer.wait()
     else:
-        try:
+        try:   # SIGTERM the CLI first (not its browser): it writes a partial report and exits 4
+            os.kill(process.pid, signal.SIGTERM)
+            await asyncio.wait_for(process.wait(), STOP_GRACE_SECONDS)
+        except (ProcessLookupError, TimeoutError):
+            pass
+        try:   # then whatever is left of the process group
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
@@ -163,6 +171,8 @@ async def run_job(config: HarnessConfig, *, process_runner=run_process) -> Harne
         if markdown.exists():
             result.artifacts['report_markdown'] = str(markdown)
         if result.worker_exit_code != 0 or payload.get('errors'):
+            if result.worker_exit_code == 4:
+                result.status = 'incomplete'   # stopped early (SIGTERM): the report it wrote is partial
             raise ValueError('Audit reported execution errors; inspect the report and stderr.log')
         result.status = 'completed'
         result.exit_code = int(config.fail_threshold is not None
@@ -175,8 +185,12 @@ async def run_job(config: HarnessConfig, *, process_runner=run_process) -> Harne
         result.error = 'Audit cancelled'
         raise
     except Exception as exc:
-        result.error = f'{type(exc).__name__}: {exc}'
+        stderr = directory / 'stderr.log'
+        tail = stderr.read_text(encoding='utf-8', errors='replace').strip().splitlines()[-1:] if stderr.exists() else []
+        result.error = f'{type(exc).__name__}: {exc}' + (f' (stderr: {tail[0][:300]})' if tail else '')
     finally:
+        for report in directory.glob('*/report.json'):   # a timed-out worker's partial report too
+            result.artifacts.setdefault('report_json', str(report))
         result.finished_at = datetime.now(timezone.utc).isoformat()
         result.duration_seconds = round(time.monotonic() - started, 3)
         for name in ('stdout', 'stderr'):

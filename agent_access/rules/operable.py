@@ -72,6 +72,12 @@ def check_keyboard_traps(ctx: Ctx) -> None:
         ctx.review(f"Focus did not leave an embedded frame after {MAX_IFRAME_TABS} Tab presses; inspect_element the frame: a "
                    "player or map with many controls is fine if Tab eventually leaves it, a cross-origin frame needs a human.",
                    [kb["stuck_in_iframe"]["selector"]])
+    elif (c := kb.get("cycle")) and c["in_modal"]:
+        ctx.review(f"Tab cycles inside an open modal dialog, back to {c['tag']} '{c['name']}': fine if the dialog closes "
+                   "from the keyboard (Escape or a close button), a trap if it doesn't.", [c["selector"]])
+    elif c:
+        ctx.fail(f"Tab cycles back to {c['tag']} '{c['name']}' after {c['after']} stops instead of moving on, so focus "
+                 "can't reach the rest of the page.", [c["selector"]])
     elif kb.get("stops"):
         ctx.passed(f"Tab moved through {len(kb['stops'])} stops without getting stuck.")
     stuck = disclosure_groups(ctx.data("disclosures").get("results", []))["stuck"]
@@ -237,6 +243,10 @@ def _moving_content(m: dict) -> list[str]:
         + (["canvas"] if m.get("canvas") else [])
 
 
+SAMPLED_NOTE = ("No flashing above 3 per second in the sampled frames; sampling can't prove there is none, so confirm "
+                "nothing flashes later or between frames.")
+
+
 @wcag_tool("2.3.1", "check_flash_thresholds", domain="media", tech=(PW,), uses=("flashing", "media"))
 def check_flash_thresholds(ctx: Ctx) -> None:
     """Nothing may flash more than 3 times a second unless below the general and red flash thresholds."""
@@ -248,10 +258,8 @@ def check_flash_thresholds(ctx: Ctx) -> None:
         ctx.fail("Content flashes more than 3 times a second over a large area.", evidence=ev)
     elif fl["over_three"]:
         ctx.review("A small area flashes more than 3 times a second; check it is below the general and red flash thresholds.", evidence=ev)
-    elif fl["resolvable"]:
-        ctx.passed("No flashing above 3 per second detected in the sampled frames.", evidence=ev)
-    else:  # slow sampling misses flashes but never invents them, so only a pass needs this
-        ctx.review(_too_slow(fl), evidence=ev)
+    else:  # sampling sees the first seconds and can miss frames (under load), so it never proves there is no flashing
+        ctx.review(SAMPLED_NOTE if fl["resolvable"] else _too_slow(fl), evidence=ev)
     # Frame sampling sees only the first seconds and can't judge red flashes; only moving content can do either.
     if moving := _moving_content(ctx.data("media")):
         ctx.review(f"{len(moving)} video/animated element(s) can flash later or in saturated red, which frame sampling "
@@ -265,10 +273,8 @@ def check_three_flashes(ctx: Ctx) -> None:
         return
     if fl["over_three"]:
         ctx.fail(f"Content flashes {fl['max']} times a second.", evidence=FLASH_NOTE)
-    elif fl["resolvable"]:
-        ctx.passed(f"No flashing above 3 per second in {fl['frames']} sampled frames.", evidence=FLASH_NOTE)
     else:
-        ctx.review(_too_slow(fl), evidence=FLASH_NOTE)
+        ctx.review(SAMPLED_NOTE if fl["resolvable"] else _too_slow(fl), evidence=FLASH_NOTE)
 
 
 @wcag_tool("2.3.3", "check_animation_from_interactions", domain="media", tech=(PW,), uses=("motion",), judgement=True)

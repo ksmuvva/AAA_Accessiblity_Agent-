@@ -242,7 +242,7 @@ async def run_audit(
     process: str | None = None,
     model: str | Model | None = None,
     reviewer_model: str | Model | None = None,
-    max_turns: int = TURNS_PER_PAGE,
+    max_turns: int | None = None,
     review: bool = True,
     progress=print,
     mode: str = "code",
@@ -287,10 +287,11 @@ async def run_audit(
         from agent_access.team.planner import run_agentic_audit  # here, not at module level: planner imports this module
 
         agentic = await run_agentic_audit(audit, pages=pages, process=process, model=model, reviewer_model=reviewer_model,
-                                          review=review, progress=progress)
+                                          review=review, progress=progress, lead_max_turns=max_turns)
         agentic.errors = outcome.errors + agentic.errors
         return _finish(audit, agentic)
 
+    max_turns = max_turns or TURNS_PER_PAGE
     if first is not None:
         queue: list[str] = [first]
         if pages > 1 and not first.startswith(("about:", "file:")):

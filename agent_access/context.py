@@ -208,10 +208,11 @@ class AuditContext:
 
         It shares every result with the root (reads and writes of shared attributes go to the root) and owns its own
         browser page (same browser context, so cookies and storage are shared), lock, page cursor and dirty set. Its
-        page is opened by its first page() or restore_page(); until then has_page() is False.
+        page is opened by its first page() or restore_page(); until then has_page() is False. A fork's fork is its own
+        context too, named by its path ("lead A > Forms specialist"), so two parallel leads never share a specialist's.
         """
         if self._root is not None:
-            return self._root.fork(owner)
+            return self._root.fork(f"{self.owner} > {owner}")
         if owner not in self._forks:
             child = _ForkedContext.__new__(_ForkedContext)
             own = {"_root": self, "owner": owner, "current_url": None, "dirty": set(), "lock": asyncio.Lock(),
@@ -464,7 +465,9 @@ class AuditContext:
         ws.on_message(send)
 
     async def close(self) -> None:
-        if self._root is not None:  # a fork: close only its page and forget it
+        if self._root is not None:  # a fork: close its own forks, then its page, and forget it
+            for key in [k for k in self._root._forks if k.startswith(f"{self.owner} > ")]:
+                await self._root._forks[key].close()
             if self._page is not None:
                 try:
                     await self._page.close()

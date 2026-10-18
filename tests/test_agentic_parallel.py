@@ -34,7 +34,9 @@ def test_fork_shares_results_but_owns_its_page():
             await _loaded(audit)
             fork = audit.fork("forms")
             assert fork.owner == "forms" and audit.owner is None and audit.can_fork()
-            assert not fork.has_page() and audit.fork("forms") is fork and fork.fork("forms") is fork
+            assert not fork.has_page() and audit.fork("forms") is fork
+            nested = fork.fork("specialist")   # a fork's fork is its own context, never another fork's
+            assert nested is not fork and nested.owner == "forms > specialist" and audit.fork("specialist") is not nested
             assert await fork.restore_page(KEY)
             assert fork.has_page() and fork.current_url == KEY
             root_page, fork_page = await audit.page(), await fork.page()
