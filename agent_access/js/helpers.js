@@ -26,14 +26,16 @@ const cssPath = (el) => {
   return (host ? cssPath(host) + ' >> ' : '') + parts.join(' > ');
 };
 // Text of the elements an id-reference attribute points to (aria-labelledby, aria-describedby, ...).
-const idrefText = (ids) => (ids || '').split(/\s+/).map((id) => document.getElementById(id)?.innerText || '').join(' ').trim();
+// Ids resolve in `from`'s own tree: a shadow root's ids aren't in the document.
+const idrefText = (ids, from = document) => (ids || '').split(/\s+/)
+  .map((id) => id && from.getRootNode().getElementById(id)?.innerText || '').join(' ').trim();
 const label = (el) => (el.getAttribute('aria-label') || (el.labels && el.labels[0] && el.labels[0].innerText) || el.innerText
   || el.value || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || '')
   .toString().trim().replace(/\s+/g, ' ').slice(0, 60);
 // A link's accessible name. Unlike label(), it includes the alt text of images inside the link, so an image link
 // with alt text has a name and one without (WCAG failure F89) has none.
 const linkName = (a) => (a.getAttribute('aria-label')
-  || idrefText(a.getAttribute('aria-labelledby'))
+  || idrefText(a.getAttribute('aria-labelledby'), a)
   || (a.innerText || '').trim()
   || [...a.querySelectorAll('img[alt], input[type="image"][alt], [role="img"][aria-label], svg title')]
     .map((i) => i.getAttribute('alt') || i.getAttribute('aria-label') || i.textContent || '').join(' ').trim()

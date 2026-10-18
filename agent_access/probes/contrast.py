@@ -102,9 +102,9 @@ async def measure_text(audit) -> tuple[list[dict], list[dict]]:
         fg = parse_color(it["color"])
         if fg is None:
             continue
-        fg = (*fg[:3], fg[3] * it["opacity"])
         bg_css, method = it["background"], "computed"
-        if bg_css is None:
+        if bg_css is None:   # sampled pixels already show any fading behind the text; fade the text colour to match
+            fg = (*fg[:3], fg[3] * it["opacity"])
             candidates, why = [], "over an image or gradient, past the sampling limit"
             if sampled < MAX_SAMPLED and it["rect"]["width"] >= 2 and it["rect"]["height"] >= 2:
                 sampled += 1

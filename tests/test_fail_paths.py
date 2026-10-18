@@ -55,6 +55,13 @@ def test_consistent_help_fails_when_the_order_changes():
     assert {f.status for f in audit.findings_for("file:b.html") if f.wcag_criterion == "3.2.6"} == {Status.FAIL}
 
 
+def test_a_label_inside_a_web_component_is_found():
+    html = page("<main><h1>Address</h1><my-field></my-field><script>customElements.define('my-field', class extends "
+                "HTMLElement { constructor() { super(); this.attachShadow({mode: 'open'}).innerHTML = "
+                "'<span id=\"lbl\">Postcode</span><input aria-labelledby=\"lbl\">'; } });</script></main>")
+    assert not found(judge(html, "3.3.2"), "3.3.2").get(Status.FAIL)
+
+
 def test_a_press_and_move_drag_is_never_not_applicable():
     html = page('<main><h1>Plan</h1><div id="board">Card</div><script>let down = false;'
                 "board.addEventListener('pointerdown', () => { down = true; });"
