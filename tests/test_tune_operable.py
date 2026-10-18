@@ -62,6 +62,21 @@ def test_navigation_aids_pass_when_present():
     assert any("vague" in d for d in descriptions(audit, "2.4.4", Status.PASS))
 
 
+def test_focus_indicators_are_measured_in_pixels():
+    """Each Tab stop is photographed focused and blurred. 2.4.7: a white outline on a white page changes the styles
+    but no pixel, so it fails like no outline at all. 2.4.13: a 1px pale ring is too weak at 3:1; a 2px dark outline
+    and a 3px box-shadow ring (which the outline check couldn't size) reach a 2px perimeter's area."""
+    rings = {"dark": "outline: 2px solid #000", "pale": "outline: 1px solid #ddd", "shadow": "outline: none; box-shadow: 0 0 0 3px #1a4fd0",
+             "none": "outline: none", "white": "outline: 2px solid #fff"}
+    html = ('<html lang="en"><title>Links</title><style>body { background: #fff } a { display: inline-block; margin: 20px; '
+            'padding: 8px; color: #000 }' + "".join(f" #{k}:focus {{ {v} }}" for k, v in rings.items()) + '</style><main><h1>Links</h1>'
+            + "".join(f'<a id="{k}" href="#{k}">{k.title()}</a>' for k in rings) + "</main></html>")
+    audit = judge(html, "2.4.7", "2.4.13")
+    assert {s for f in found(audit, "2.4.7")[Status.FAIL] for s in f.selectors} == {"#none", "#white"}
+    weak = found(audit, "2.4.13")[Status.FAIL][0].evidence
+    assert "#pale: 0px change at 3:1" in weak and "#dark" not in weak and "#shadow" not in weak
+
+
 def test_quiet_pages_get_no_unsupported_findings():
     # good_page has no video or animation, so 2.3.1 asks only to confirm the sampling (or, under load, says it was too
     # slow); it never fails and is never silent.
@@ -176,18 +191,3 @@ def test_tab_walk_cut_short_by_a_frame_is_never_a_pass():
             assert findings, criterion   # never only the "no automated evidence" placeholder
             assert {f.status for f in findings} == {Status.NEEDS_REVIEW}, (criterion, [f.description for f in findings])
             assert any("#consent" in (f.evidence or "") for f in findings), criterion
-
-
-def test_focus_indicators_are_measured_in_pixels():
-    """Each Tab stop is photographed focused and blurred. 2.4.7: a white outline on a white page changes the styles
-    but no pixel, so it fails like no outline at all. 2.4.13: a 1px pale ring is too weak at 3:1; a 2px dark outline
-    and a 3px box-shadow ring (which the outline check couldn't size) reach a 2px perimeter's area."""
-    rings = {"dark": "outline: 2px solid #000", "pale": "outline: 1px solid #ddd", "shadow": "outline: none; box-shadow: 0 0 0 3px #1a4fd0",
-             "none": "outline: none", "white": "outline: 2px solid #fff"}
-    html = ('<html lang="en"><title>Links</title><style>body { background: #fff } a { display: inline-block; margin: 20px; '
-            'padding: 8px; color: #000 }' + "".join(f" #{k}:focus {{ {v} }}" for k, v in rings.items()) + '</style><main><h1>Links</h1>'
-            + "".join(f'<a id="{k}" href="#{k}">{k.title()}</a>' for k in rings) + "</main></html>")
-    audit = judge(html, "2.4.7", "2.4.13")
-    assert {s for f in found(audit, "2.4.7")[Status.FAIL] for s in f.selectors} == {"#none", "#white"}
-    weak = found(audit, "2.4.13")[Status.FAIL][0].evidence
-    assert "#pale: 0px change at 3:1" in weak and "#dark" not in weak and "#shadow" not in weak
