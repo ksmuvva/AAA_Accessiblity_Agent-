@@ -12,10 +12,13 @@ const headingBefore = (el) => {
   const h = headingEls.filter((x) => x.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).pop();
   return h ? text(h).slice(0, 80) : null;
 };
-// The nearest ancestor that isn't inline: a <span> or <strong> wrapped around a link is not its context.
+// The nearest ancestor that isn't inline: a <span> or <strong> wrapped around a link is not its context. A paragraph,
+// list item or heading is, whatever its CSS display.
 const blockOf = (el) => {
   let b = el.parentElement;
-  while (b && b.parentElement && getComputedStyle(b).display.startsWith('inline')) b = b.parentElement;
+  while (b && b.parentElement && !b.matches('p, li, h1, h2, h3, h4, h5, h6') && getComputedStyle(b).display.startsWith('inline')) {
+    b = b.parentElement;
+  }
   return b || el;
 };
 const links =[...document.querySelectorAll('a[href]'), ...shadowAll('a[href]')].filter(isVisible).slice(0, 200).map((a) => ({
