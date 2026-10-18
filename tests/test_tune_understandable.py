@@ -124,3 +124,20 @@ def test_a_second_link_to_the_same_page_is_not_an_inconsistent_name():
     renamed = [f for f in audit.findings if f.wcag_criterion == "3.2.4" and "different names" in f.description]
     # Only "about" names /home.html with a name no other page uses ("Start"); home's extra link isn't a conflict.
     assert [f.page_url for f in renamed] == ["about"] and "/home.html" in renamed[0].evidence
+
+
+def test_a_date_field_with_no_stated_format_goes_to_the_agent():
+    """The eval's booking_1 false pass: "Date" with no format passed 3.3.2. A label, placeholder or hint giving the
+    format (or a native date picker) is enough."""
+    from audit_helpers import found
+
+    def flagged(field):
+        html = (f'<!doctype html><html lang="en"><head><title>Book</title></head><body><main><h1>Book</h1>'
+                f'<form action="/b">{field}<button>Book</button></form></main></body></html>')
+        return [f for f in found(judge(html, "3.3.2"), "3.3.2").get(Status.NEEDS_REVIEW, []) if "date field" in f.description]
+    assert flagged('<label for="d">Date</label><input id="d" name="day" type="text">')
+    assert flagged('<label for="b">Date of birth</label><input id="b" type="text">')
+    assert not flagged('<label for="d">Date (DD/MM/YYYY)</label><input id="d" type="text">')
+    assert not flagged('<label for="d">Date</label><input id="d" type="text" aria-describedby="h"><p id="h">For example, 27 3 2026</p>')
+    assert not flagged('<label for="d">Date</label><input id="d" type="text" placeholder="05/11/2026">')
+    assert not flagged('<label for="d">Date</label><input id="d" type="date">')

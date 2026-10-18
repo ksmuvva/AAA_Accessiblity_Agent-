@@ -9,7 +9,7 @@ import threading
 
 from agents.exceptions import ModelBehaviorError
 from agents.run_config import CallModelData, ModelInputData
-from test_agent import SUMMARY, RouterModel, confirm_all, first_user_text
+from test_agent import SUMMARY, RouterModel, call, confirm_all, first_user_text
 
 from agent_access.team.orchestrator import run_audit
 from agent_access.team.reviewer import apply_verdicts, review_findings
@@ -176,6 +176,29 @@ def test_multi_page_audit_runs_the_lead_once_per_page_in_code(tmp_path):
     assert outcome.lead_notes[0] == f"{base}/index.html: note"
     assert sum("stopped with" in w for w in outcome.warnings) == 2
     assert "reviewer" in outcome.engines["Agent models"]
+
+
+def test_a_state_the_lead_labels_gets_its_own_lead_runs_in_code_mode():
+    """The eval's settings_2: the lead labelled "after-save-click" and stopped, leaving 51 criteria open there, which
+    turned three correct passes into needs_review. A rebuildable state is now judged like a page."""
+    page = ("<html lang='en'><head><title>Menu</title></head><body><main><h1>Menu</h1><button id='open' "
+            "onclick=\"document.getElementById('m').hidden=false\">Open</button><p id='m' hidden>Settings</p></main></body></html>")
+    model = RouterModel({
+        "lead auditor": [call("click_element", {"selector": "#open"}), call("label_page_state", {"label": "menu-open"}),
+                         {"notes_for_human": []}] + [{"notes_for_human": []}] * 6,
+        "reviewer": [confirm_all] * 6, "summary writer": [SUMMARY],
+    })
+
+    async def scenario():
+        async with AuditContext(allow_interaction=True, screen_reader="emulated") as audit:
+            await load_html_content(audit, page)
+            await run_audit(audit, model=model, max_turns=5, progress=lambda m: None)
+            return audit
+
+    audit = asyncio.run(scenario())
+    state = next(k for k in audit.pages if k.endswith("[menu-open]"))
+    prompts = [first_user_text(i) for i in model.inputs["lead auditor"]]
+    assert f"Audit this page: {state}" in prompts
 
 
 def test_restore_page_works_inside_the_network_guard_on_http_pages(tmp_path):

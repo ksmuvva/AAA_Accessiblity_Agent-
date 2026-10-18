@@ -26,6 +26,8 @@ COMMON_ACRONYMS = {"OK", "TV", "USA", "UK", "EU", "PDF", "FAQ", "URL", "AM", "PM
 HELP_HINT = re.compile(r"\b(example|format|e\.g\.|for instance|must|should|at least|between|like|such as|enter a|use )\b", re.I)
 RISKY_FORM = re.compile(r"\b(card|cvv|cvc|payment|pay|purchase|order|checkout|bank|iban|account number|transfer|delete|"
                         r"terms|contract|agree|legal|exam|test|answer|submit application|tax)\b", re.I)
+DATE_FIELD = re.compile(r"\b(date|dob|birth\w*|bday|expir\w*|cc-exp\w*)\b", re.I)
+FORMAT_HINT = re.compile(r"\b(dd|mm|yy|yyyy|day|month|year|for example|e\.?g)\b|\d{1,2}\s*[/.-]\s*\d{1,2}", re.I)
 STEPS = re.compile(r"\bstep\s*\d+\s*(of|/)\s*\d+\b", re.I)
 MIN_FOREIGN_PASSAGE = 40  # characters: below this, text in another script is probably a name, not a passage
 
@@ -403,6 +405,13 @@ def check_labels_or_instructions(ctx: Ctx) -> None:
         ctx.review(f"{len(rest)} field(s) are labelled only for assistive technology (aria-label or title); check sighted "
                    "users get instructions.",
                    [f["selector"] for f in rest])
+    # A typed date with no stated format (the eval's booking_1 false pass): only a person can tell if any format works.
+    undated = [f for f in fields if f["type"] in ("text", "tel") and DATE_FIELD.search(f"{f['label']} {f['name']} {f['autocomplete']}")
+               and not FORMAT_HINT.search(f"{f['label']} {f['placeholder']} {f.get('hint')}")]
+    if undated:
+        ctx.review(f"{len(undated)} date field(s) don't say what format to enter (e.g. DD/MM/YYYY); if the field "
+                   "needs a format, the label or a hint must state it.",
+                   [f["selector"] for f in undated], "; ".join(f"'{f['label']}'" for f in undated[:5]))
     if not ctx.findings:
         ctx.passed(f"All {len(fields)} fields have visible labels.")
 

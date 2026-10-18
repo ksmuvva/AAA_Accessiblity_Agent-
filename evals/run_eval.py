@@ -152,6 +152,13 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None, calls_left
     result = {"name": case["name"], **score(case["expected"], actual), "errors": outcome.errors,
               "warnings": outcome.warnings, "model_calls": model_calls, "models": models,
               "reported": outcome.report is not None}
+    # Why a row missed, kept in the results file so a miss can be explained without paying for a rerun.
+    findings = {c.wcag_criterion: c.findings for c in criteria}
+    for row in result["rows"]:
+        if row["outcome"] not in ("caught", "correct_pass"):
+            row["findings"] = [{"status": f.status.value, "original_status": f.original_status and f.original_status.value,
+                                "source": f"{f.source}/{f.check_id}", "verdict": f.review_verdict, "note": f.review_note,
+                                "description": f.description[:200]} for f in findings.get(row["criterion"], [])][:8]
     result["lessons_written"] = lessons_from_eval(memory, result, outcome.report, case) if memory is not None else 0
     return result
 

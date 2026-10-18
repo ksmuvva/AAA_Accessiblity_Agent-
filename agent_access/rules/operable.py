@@ -16,6 +16,7 @@ from agent_access.rules.common import (
 AMBIGUOUS_LINK = re.compile(r"^(click here|here|read more|more|learn more|more info|details|link|this|go|continue|see more|find out more)\.?$", re.I)
 COUNTDOWN = re.compile(r"\b(\d{1,2}:\d{2}\s*(remaining|left)|session (will )?(expire|time ?out)|time remaining|seconds? (left|remaining)|"
                        r"you will be (logged|signed) out)\b", re.I)
+GENERIC_LABEL = re.compile(r"^\s*(value|field|input|text|item|entry|data|box|untitled|label|option)\s*#?\s*\d*\s*:?\s*$", re.I)
 GENERIC_TITLE = re.compile(r"\s*(untitled|home|page|document|index|new page|default)\s*", re.I)
 
 
@@ -413,6 +414,10 @@ def check_headings_and_labels(ctx: Ctx) -> None:
     """Judge whether headings and labels describe their topic or purpose."""
     ctx.axe()
     labels = [f["label"] for f in form_fields(ctx.data("forms")) if f["label"]]
+    # "Value 1", "Field 2": a generic word and a number name no purpose (the eval's settings_1 false pass).
+    if generic := [f for f in form_fields(ctx.data("forms")) if GENERIC_LABEL.match(f["label"] or "")]:
+        ctx.fail(f"{len(generic)} field label(s) are only a generic word and a number, so they don't say what the "
+                 "field is for.", [f["selector"] for f in generic], "; ".join(f"'{f['label']}'" for f in generic[:5]))
     ctx.review("Check these headings and labels are descriptive.",
                evidence="Headings: " + " | ".join(ctx.data("screen_reader").get("headings", [])[:15])
                + (" / Labels: " + " | ".join(labels[:10]) if labels else ""))

@@ -86,3 +86,19 @@ def test_the_cost_guard_stops_starting_cases_at_the_cap(monkeypatch, tmp_path):
     assert (saved["model_calls"], saved["not_started"]) == (1200, 1)
     args.cases, args.max_calls = ["a"], 600                    # the cap cuts the only case: still exit 5
     assert asyncio.run(run_eval.main_async(args)) == 5
+
+
+def test_a_miss_keeps_the_findings_that_explain_it():
+    """A row that isn't caught or a correct pass carries its criterion's findings (status, source, reviewer verdict),
+    so a miss can be explained from the results file without a paid rerun. Baseline mode: no model."""
+    import asyncio
+    from argparse import Namespace
+
+    import evals.run_eval as run_eval
+    case = {"name": "x", "file": "cases/judgement_bad.html", "level": "AA", "expected": {"2.4.4": "fail", "2.4.6": "fail"}}
+    args = Namespace(mode="baseline", measurement="eager", no_interaction=False, trace=False, use_lessons=False)
+    rows = {r["criterion"]: r for r in asyncio.run(run_eval.run_case(case, args))["rows"]}
+    assert rows["2.4.4"]["outcome"] == "caught" and "findings" not in rows["2.4.4"]
+    missed = rows["2.4.6"]
+    assert missed["outcome"] == "flagged_for_human" and missed["findings"]
+    assert set(missed["findings"][0]) == {"status", "original_status", "source", "verdict", "note", "description"}
