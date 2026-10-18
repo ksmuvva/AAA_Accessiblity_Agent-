@@ -45,6 +45,7 @@ def test_act_rules_are_read_and_scored(tmp_path):
     rule, examples = read_rule(tmp_path / "_rules" / "image-abc123.md")
     assert rule["criteria"] == ["1.1.1"] and [e[:2] for e in examples] == [("passed", "Passed 1"), ("failed", "Failed 1")]
     assert score("failed", {Status.PASS}) == "false pass" and score("failed", {Status.NEEDS_REVIEW}) == "missed"
+    assert score("failed", {Status.NOT_APPLICABLE}) == score("failed", {Status.PASS, Status.NOT_APPLICABLE}) == "false pass"
     assert score("passed", {Status.FAIL, Status.PASS}) == "false fail" and score("inapplicable", set()) == "ok"
     rows = asyncio.run(run(tmp_path, None))
     assert [(r["example"], r["result"]) for r in rows] == [("Passed 1", "ok"), ("Failed 1", "caught")]

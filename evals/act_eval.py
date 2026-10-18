@@ -5,7 +5,8 @@
 
 Each ACT rule maps to WCAG criteria and gives passed, failed and inapplicable HTML examples. Every example is
 loaded and the rules for its criteria are run. A failed example should fail the criterion ("caught"; a review is
-"missed", a pass is a "false pass"); a passed or inapplicable example must not fail ("false fail"). Examples that
+"missed", a pass or not-applicable a "false pass", as in run_eval); a passed or inapplicable example must not fail
+("false fail"). Examples that
 load assets from the ACT site (/test-assets/...) run without them.
 """
 
@@ -47,7 +48,8 @@ def read_rule(path: Path) -> tuple[dict, list[tuple[str, str, str]]]:
 
 def score(outcome: str, statuses: set[Status]) -> str:
     if outcome == "failed":
-        return "caught" if Status.FAIL in statuses else "false pass" if statuses == {Status.PASS} else "missed"
+        return "caught" if Status.FAIL in statuses else "missed" if not statuses or Status.NEEDS_REVIEW in statuses \
+            else "false pass"
     return "false fail" if Status.FAIL in statuses else "ok"
 
 
