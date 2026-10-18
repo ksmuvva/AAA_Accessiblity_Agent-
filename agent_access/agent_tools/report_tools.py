@@ -78,6 +78,8 @@ def _unopened_controls(audit: AuditContext) -> str | None:
     seen = audit.observations.get(page, {}).get("disclosures")
     if seen is None:
         return 'what this page\'s menus, accordions and dialogs reveal hasn\'t been measured (run_checks(["2.1.1"]) does).'
+    if failed := seen.error or seen.data.get("stopped_early"):
+        return f"what this page's menus, accordions and dialogs reveal couldn't be fully measured ({str(failed)[:100]})."
     revealing = [r for r in disclosure_groups(seen.data.get("results", []))["opened"] if r.get("content")]
     return ("these controls reveal content no check has judged: "
             + "; ".join(f"{r['name']!r} ({r['trigger']}) shows {r['content'][:80]!r}" for r in revealing[:5]) + "."
