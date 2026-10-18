@@ -131,6 +131,11 @@ def test_vague_links_nothing_tells_apart_fail():
         '<h2>Section</h2><p>New stores.</p><p><a href="#b">More</a></p>'))
     assert not links('<h2>Annual report</h2><p><a href="#a">More</a></p><h2>New stores</h2><p><a href="#b">More</a></p>')
     assert not links('<p>Annual report. <a href="#a">More</a></p><p>New stores. <a href="#b">More</a></p>')
+    # An inline wrapper isn't the context: the paragraph or block around it still is.
+    assert not links('<p>Annual report: <span><a href="#a">More</a></span></p><p>New stores: <span><a href="#b">More</a></span></p>')
+    assert not links('<div>Annual report <strong><a href="#a">More</a></strong></div>'
+                     '<div>New stores <strong><a href="#b">More</a></strong></div>')
+    assert links('<div><span><a href="#a">More</a></span></div><div><span><a href="#b">More</a></span></div>')
     assert not links('<p><a href="#a">More</a></p><p><a href="#a">More</a></p>')
 
 
