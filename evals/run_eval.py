@@ -21,7 +21,9 @@ with what the team said and, if the case has "notes": {criterion: text}, the tru
 prompts, not answers learned from these same cases; --use-lessons scores with them. --memory off writes nothing.
 
 Exit codes: 0 done; 1 a false pass with --fail-on-false-pass; 2 usage; 3 a run that can't be scored (a case errored or
-produced no report, or the team decided nothing at all, which would otherwise look like a run without false passes).
+produced no report, or the team decided nothing at all, which would otherwise look like a run without false passes);
+5 the cost guard stopped the run: --max-calls (default 1000) caps the model calls of the whole run, so a case that
+reaches it stops early and later cases don't start.
 
 Outcomes per criterion:
     caught             expected fail, reported fail
@@ -112,7 +114,7 @@ def open_memory(args: argparse.Namespace):
     return None if args.memory == "off" else Memory.open(args.memory)
 
 
-async def run_case(case: dict, args: argparse.Namespace, memory=None) -> dict:
+async def run_case(case: dict, args: argparse.Namespace, memory=None, calls_left: int = 10**9) -> dict:
     """Run and score one case. With `memory`, its false passes/fails become lessons (and, with --use-lessons, the
     team reads the lessons while it audits)."""
     from agent_access.team import run_audit
@@ -131,8 +133,11 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None) -> dict:
                             measurement=args.measurement, allow_interaction=not args.no_interaction) as audit:
         if memory is not None and args.use_lessons:
             audit.memory = memory
-        if args.mode == "code":   # count model calls without limiting them (agent mode brings its own Budget)
-            audit.budget = Budget(max_model_calls=10**9, reserve_calls=0, max_minutes=10**9)
+        if args.mode == "code":   # count model calls, up to what the run has left
+            audit.budget = Budget(max_model_calls=calls_left, reserve_calls=0, max_minutes=10**9)
+        elif args.mode == "agent":   # the CLI's budget, capped by what the run has left
+            audit.budget = Budget(max_model_calls=min(calls_left, Budget.max_model_calls),
+                                  reserve_calls=min(Budget.reserve_calls, calls_left // 4))
         await load_html_content(audit, html, "file:page.html")   # the case's file name would give the answers away
         if args.mode == "baseline":
             await run_sweep(audit)
@@ -157,11 +162,19 @@ async def main_async(args: argparse.Namespace) -> int:
     if not cases:
         print("No matching cases.", file=sys.stderr)
         return 2
-    results, totals = [], Counter()
+    results, totals, spent, stopped = [], Counter(), 0, 0
     memory = None if args.mode == "baseline" else open_memory(args)
-    for case in [c for c in cases for _ in range(args.repeats)]:
+    runs = [c for c in cases for _ in range(args.repeats)]
+    if args.mode != "baseline":
+        print(f"Cost guard: at most {args.max_calls} model calls in this run.", file=sys.stderr)
+    for i, case in enumerate(runs):
+        if args.mode != "baseline" and spent >= args.max_calls:
+            stopped = len(runs) - i
+            print(f"Cost guard: {spent} model calls used; {stopped} case run(s) not started.", file=sys.stderr)
+            break
         print(f"Case {case['name']} ...", file=sys.stderr)
-        result = await run_case(case, args, memory)
+        result = await run_case(case, args, memory, args.max_calls - spent)
+        spent += result["model_calls"] or 0
         results.append(result)
         totals.update(result["totals"])
         for r in result["rows"]:
@@ -178,12 +191,16 @@ async def main_async(args: argparse.Namespace) -> int:
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"eval-{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps({"git_commit": git_commit(), "versions": versions(), "repeats": args.repeats,
+                               "max_calls": args.max_calls, "model_calls": spent, "not_started": stopped,
                                "mode": args.mode, "measurement": args.measurement, "interaction": not args.no_interaction,
                                "model": args.model or os.environ.get("OPENAI_MODEL"), "reviewer_model": args.reviewer_model,
                                "metrics": summary, "totals": dict(totals), "cases": results,
                                "memory": args.memory, "used_lessons": args.use_lessons, "lessons_written": lessons},
                               indent=2), encoding="utf-8")
     print(f"Results: {out}")
+    if stopped or (args.mode != "baseline" and spent >= args.max_calls):   # the cap also ends the case it interrupts
+        print(f"Cost guard: the run reached --max-calls {args.max_calls}; its results are partial.", file=sys.stderr)
+        return 5
     broken = [r["name"] for r in results if r["errors"] or not r["reported"]]
     if broken or not summary["decided"]:
         print(f"Not scorable: {', '.join(broken) or 'the team decided nothing'}.", file=sys.stderr)
@@ -197,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score the agent team's judgements against pages with known answers.")
     parser.add_argument("--cases", nargs="*", help="case names to run (default: all)")
     parser.add_argument("--cases-file", default=str(HERE / "cases.json"),
-                        help="the cases and their answers (default evals/cases.json; evals/cases_v2_draft.json is unsigned)")
+                        help="the cases and their answers (default evals/cases.json)")
     parser.add_argument("--model", help="model for the auditors (default: $OPENAI_MODEL)")
     parser.add_argument("--reviewer-model", help="model for the reviewer (default: $OPENAI_REVIEWER_MODEL, else --model)")
     parser.add_argument("--skip-review", action="store_true", help="score without the reviewer")
@@ -211,12 +228,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="code (default): the fixed per-page flow; agent: the planner owns the run (the CLI "
                              "default); baseline: the automated checks alone, no model")
     parser.add_argument("--repeats", type=int, default=1, help="run each case this many times (default 1)")
+    parser.add_argument("--max-calls", type=int, default=1000,
+                        help="cost guard: model calls for the whole run, all cases and repeats (default 1000)")
     parser.add_argument("--measurement", choices=["eager", "lazy"], default="eager",
                         help="eager (default): every check runs on load; lazy: the agents choose (the CLI default)")
     parser.add_argument("--no-interaction", action="store_true",
                         help="forbid clicking, typing and key presses, as the CLI flag does (default: allowed, as in the "
                              "CLI); cases that need interaction are then scored without it")
     args = parser.parse_args(argv)
+    if args.max_calls < 1:
+        parser.error("--max-calls must be at least 1")
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
     load_dotenv()
