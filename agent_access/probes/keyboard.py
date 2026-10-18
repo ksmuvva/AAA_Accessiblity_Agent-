@@ -1,21 +1,48 @@
 """Keyboard probe: Tab through the whole page and record every focus stop.
 
 For each stop: selector, tag, name, tabindex, whether focus changes its appearance, whether it's visible or
-covered by other content, and its focus-outline style. Also records keyboard traps, navigation triggered by
+covered by other content, its focus-outline style and, for the first MAX_PIXEL_STOPS, the indicator in pixels. Also records keyboard traps, navigation triggered by
 focus, elements whose focus a script removes as soon as they get it (W3C failure F55), and clickable elements
 that Tab never reaches.
 """
 
 from __future__ import annotations
 
+import io
+
+from PIL import Image
+
 from agent_access.context import AuditContext
 from agent_access.jsassets import js
 from agent_access.probes import probe
+from agent_access.probes.contrast import contrast_ratio
 
 MAX_TAB_STOPS = 200   # a walk cut at the cap is stopped_early: its passes cover only part of the page
 # Inside an iframe, focus moves through the frame's own content while the parent document keeps reporting the
 # iframe as active, so many more presses are allowed there before calling it a trap.
 MAX_IFRAME_TABS = 40
+MAX_PIXEL_STOPS = 30  # visible stops whose indicator is measured in pixels (two screenshots each)
+FOCUS_MARGIN = 12     # CSS px around the element, where outlines, offsets and shadows are drawn
+
+
+async def _focus_pixels(page, stop: dict) -> dict:
+    """The focus indicator in pixels: the element and FOCUS_MARGIN around it, focused then blurred (animations
+    finished, caret hidden). WCAG 2.4.13 asks for a change of 3:1 or more over at least the area of a 2 CSS px
+    perimeter of the element (4 x (width + height))."""
+    view, (x, y), size = page.viewport_size, stop["at"].values(), stop["size"]
+    left, top = max(0, x - FOCUS_MARGIN), max(0, y - FOCUS_MARGIN)
+    clip = {"x": left, "y": top, "width": min(view["width"], x + size["width"] + FOCUS_MARGIN) - left,
+            "height": min(view["height"], y + size["height"] + FOCUS_MARGIN) - top}
+    focused = await page.screenshot(clip=clip, animations="disabled")
+    await page.evaluate(js("keyboard/focus_toggle"), "blur")
+    try:
+        blurred = await page.screenshot(clip=clip, animations="disabled")
+    finally:
+        await page.evaluate(js("keyboard/focus_toggle"), "focus")
+    on, off = (Image.open(io.BytesIO(shot)).convert("RGB").tobytes() for shot in (focused, blurred))
+    changed = [(tuple(on[i:i + 3]), tuple(off[i:i + 3])) for i in range(0, len(on), 3) if on[i:i + 3] != off[i:i + 3]]
+    return {"changed_px": len(changed), "contrast_px": sum(contrast_ratio(a, b) >= 3 for a, b in changed),
+            "min_px": 4 * (size["width"] + size["height"])}
 
 
 @probe("keyboard")
@@ -28,7 +55,7 @@ async def keyboard(audit: AuditContext) -> dict:
     capped = False
     focus_navigations: list[dict] = []  # 3.2.1: moving focus must not navigate; the guard records attempts
     focus_removed: list[dict] = []
-    repeat = 0
+    repeat = measured = 0
     async with audit.network_guard() as blocked:
         for _ in range(MAX_TAB_STOPS + MAX_IFRAME_TABS):
             seen_blocked = len(blocked)
@@ -67,6 +94,8 @@ async def keyboard(audit: AuditContext) -> dict:
                         "() => !!document.activeElement?.closest('dialog[open], [aria-modal=\"true\"]')")}
                 break
             seen.add(stop["id"])
+            if measured < MAX_PIXEL_STOPS and stop["visible"] and stop["obscured"] == "none" and stop["tag"] != "iframe":
+                stop["pixels"], measured = await _focus_pixels(page, stop), measured + 1
             stops.append(stop)
     mouse_only = await page.evaluate(js("keyboard/mouse_only"), None)
     await page.evaluate(js("keyboard/reset"))

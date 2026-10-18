@@ -431,7 +431,8 @@ def check_focus_visible(ctx: Ctx) -> None:
         return
     stops, removed = inspectable_stops(kb), kb["focus_removed"]
     frames = [s for s in kb["stops"] if s["tag"] == "iframe"]
-    no_indicator = [s for s in stops if s["visible"] and not s["indicator"]]
+    # Measured in pixels, the change on screen decides (a script may draw the indicator); otherwise the styles do.
+    no_indicator = [s for s in stops if s["visible"] and not (s["pixels"]["changed_px"] if "pixels" in s else s["indicator"])]
     hidden = [s for s in stops if not s["visible"]]
     if removed:  # F55
         ctx.fail(f"{len(removed)} element(s) lose focus as soon as they receive it (a script removes it), "
@@ -541,7 +542,14 @@ def check_focus_appearance(ctx: Ctx) -> None:
     weak, unknown = [], []
     for s in stops:
         o, behind, color = s.get("outline", {}), parse_color(s.get("behind")), parse_color(s.get("outline", {}).get("color"))
-        if o.get("style") not in (None, "none") and o.get("width", 0) >= 2 and color and behind:
+        # Measured in pixels: the pixels that change at 3:1 or more, against the area of a 2px perimeter.
+        if (px := s.get("pixels")) and px["contrast_px"] >= px["min_px"]:
+            continue
+        if px and o.get("style") == "auto":  # Chromium's own ring is exempt if the author didn't change it
+            unknown.append(s["selector"])
+        elif px:
+            weak.append(f"{s['selector']}: {px['contrast_px']}px change at 3:1, {px['min_px']}px needed")
+        elif o.get("style") not in (None, "none") and o.get("width", 0) >= 2 and color and behind:
             if (ratio := contrast_ratio(color[:3], behind[:3])) < 3:
                 weak.append(f"{s['selector']}: {o['width']}px outline at {ratio}:1")
         elif not s.get("indicator"):
@@ -553,7 +561,7 @@ def check_focus_appearance(ctx: Ctx) -> None:
     if unknown:
         ctx.review(f"{len(unknown)} element(s) show focus by other means (shadow, colour, thin outline); check size and 3:1 contrast.", unknown)
     if stops and not weak and not unknown:
-        pass_walk(ctx, ctx.data("keyboard"), f"All {len(stops)} focus indicators are 2px+ outlines with 3:1 contrast.")
+        pass_walk(ctx, ctx.data("keyboard"), f"All {len(stops)} focus indicators are at least a 2px perimeter at 3:1 contrast.")
     elif not stops:
         no_stops(ctx, ctx.data("keyboard"))
 
