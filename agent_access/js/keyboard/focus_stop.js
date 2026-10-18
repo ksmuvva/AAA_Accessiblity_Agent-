@@ -32,7 +32,8 @@ if (pts.length && !hits.length) {
   coveredBy = t ? cssPath(t) : null;
 }
 // Forced-colours mode drops box-shadow and background images and replaces colours: only an outline (of any colour),
-// a border width or style, an underline or a transform still shows there.
+// a border width or style, an underline or a transform still shows there. Measured in the current mode, so a page's
+// own @media (forced-colors) fallback isn't seen: this is a risk to check, not a proven loss.
 const forced = () => { const s = getComputedStyle(el); return ['outline-style', 'outline-width', 'border-top-width',
   'border-bottom-width', 'border-top-style', 'text-decoration-line', 'transform'].map((p) => s.getPropertyValue(p)).join('|'); };
 const anyOutline = fs.outlineStyle !== 'none' && parseFloat(fs.outlineWidth) > 0;
@@ -48,7 +49,7 @@ return {
   tag: el.tagName.toLowerCase(),
   tabindex: el.getAttribute('tabindex'),
   indicator: hasOutline || focusedStyles !== unfocusedStyles,
-  forced_colors_lost: (hasOutline || focusedStyles !== unfocusedStyles) && !anyOutline && focusedForced === unfocusedForced,
+  forced_colors_risk: (hasOutline || focusedStyles !== unfocusedStyles) && !anyOutline && focusedForced === unfocusedForced,
   visible: r.width > 0 && r.height > 0 && pts.length > 0,
   obscured: !pts.length ? 'offscreen' : !hits.length ? 'full' : hits.length < pts.length ? 'partial' : 'none',
   covered_by: coveredBy,

@@ -113,6 +113,7 @@ async def _apply_options(audit: AuditContext, opts: dict) -> dict:
         if "vision" in opts:
             await cdp.send("Emulation.setEmulatedVisionDeficiency", {"type": opts["vision"]})
         if opts.get("mobile"):
+            await page.set_viewport_size({"width": 390, "height": 844})   # so probes that read page.viewport_size agree
             await cdp.send("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": True})
             await cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 5})
     return previous
@@ -131,6 +132,8 @@ async def _reset_options(audit: AuditContext, opts: dict, previous: dict) -> Non
         if opts.get("mobile"):
             await cdp.send("Emulation.clearDeviceMetricsOverride")
             await cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
+            if previous.get("viewport"):
+                await page.set_viewport_size(previous["viewport"])
         await cdp.detach()
 
 
