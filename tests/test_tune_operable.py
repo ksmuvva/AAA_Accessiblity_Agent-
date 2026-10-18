@@ -136,6 +136,7 @@ def test_vague_links_nothing_tells_apart_fail():
     assert not links('<div>Annual report <strong><a href="#a">More</a></strong></div>'
                      '<div>New stores <strong><a href="#b">More</a></strong></div>')
     assert links('<div><span><a href="#a">More</a></span></div><div><span><a href="#b">More</a></span></div>')
+    assert links('<p style="display:inline-block"><a href="#a">More</a></p><p style="display:inline-block"><a href="#b">More</a></p>')
     assert not links('<p><a href="#a">More</a></p><p><a href="#a">More</a></p>')
 
 
