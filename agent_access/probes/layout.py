@@ -108,20 +108,37 @@ async def flashing(audit: AuditContext) -> dict:
     frames, times = [], []
     start = time.monotonic()
     while time.monotonic() - start < FLASH_SECONDS:
-        img = Image.open(io.BytesIO(await page.screenshot(type="jpeg", quality=40))).convert("RGB").resize((cols, rows))
-        frames.append([relative_luminance(img.getpixel((x, y))) for y in range(rows) for x in range(cols)])
+        # Quality 80: a low-quality JPEG washes out saturated red.
+        img = Image.open(io.BytesIO(await page.screenshot(type="jpeg", quality=80))).convert("RGB").resize((cols, rows))
+        frames.append([img.getpixel((x, y)) for y in range(rows) for x in range(cols)])
         times.append(time.monotonic() - start)
     viewport = page.viewport_size or {"width": 1280, "height": 800}
-    flashes = []
+    flashes, red = [], []
     for i in range(cols * rows):
-        series = [f[i] for f in frames]
+        lum = [relative_luminance(f[i]) for f in frames]
         # A flash is a pair of opposing changes of >=10% relative luminance where the darker state is < 0.80.
-        changes, last = 0, 0
-        for a, b in zip(series, series[1:]):
-            if abs(b - a) >= 0.1 and min(a, b) < 0.8 and (direction := 1 if b > a else -1) != last:
-                changes, last = changes + 1, direction
-        flashes.append(changes / 2)
+        flashes.append(_flash_count(lum, lambda j, a, b: abs(b - a) >= 0.1 and min(a, b) < 0.8))
+        # A red flash: opposing changes of more than 20 in (R-G-B)x320 where either state is saturated red.
+        rv, sat = zip(*(red_value(f[i]) for f in frames)) if frames else ((), ())
+        red.append(_flash_count(rv, lambda j, a, b: abs(b - a) > 20 and (sat[j] or sat[j + 1])))
     duration = times[-1] if times else FLASH_SECONDS
     return {"frames": len(frames), "fps": round(len(frames) / duration, 1) if duration else 0,
             "flashes_per_second": [f / duration for f in flashes] if duration else flashes,
+            "red_flashes_per_second": [f / duration for f in red] if duration else red,
             "cell_area_px": (viewport["width"] / cols) * (viewport["height"] / rows)}
+
+
+def red_value(rgb: tuple[int, int, int]) -> tuple[float, bool]:
+    """WCAG's red flash measure for one colour: ((R-G-B) x 320, negative as 0) and whether it is saturated red
+    (R / (R+G+B) >= 0.8), with R, G, B in 0..1."""
+    r, g, b = (c / 255 for c in rgb)
+    return max(0.0, (r - g - b) * 320), r + g + b > 0 and r / (r + g + b) >= 0.8
+
+
+def _flash_count(series, counts) -> float:
+    """Flashes in one cell's series: pairs of opposing changes that `counts(index, before, after)` accepts."""
+    changes, last = 0, 0
+    for j, (a, b) in enumerate(zip(series, series[1:])):
+        if counts(j, a, b) and (direction := 1 if b > a else -1) != last:
+            changes, last = changes + 1, direction
+    return changes / 2

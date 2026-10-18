@@ -228,8 +228,10 @@ def _flashing(ctx: Ctx) -> dict | None:
     if not fl:
         return None
     over = [f for f in fl["flashes_per_second"] if f > 3]
+    red = [f for f in fl.get("red_flashes_per_second", []) if f > 3]
     return {**fl, "over_three": len(over), "max": round(max(fl["flashes_per_second"], default=0), 2),
-            "area": round(len(over) * fl["cell_area_px"]), "resolvable": fl["fps"] >= MIN_FLASH_FPS}
+            "area": round(len(over) * fl["cell_area_px"]), "resolvable": fl["fps"] >= MIN_FLASH_FPS,
+            "red_over_three": len(red), "red_area": round(len(red) * fl["cell_area_px"])}
 
 
 def _too_slow(fl: dict) -> str:
@@ -255,15 +257,18 @@ def check_flash_thresholds(ctx: Ctx) -> None:
         return
     ev = f"{fl['frames']} frames at {fl['fps']} fps; max {fl['max']} flashes/s; flashing area {fl['area']}px^2 " \
          f"(threshold {FLASH_AREA_PX}px^2). {FLASH_NOTE}"
+    if fl["red_over_three"] and fl["red_area"] >= FLASH_AREA_PX:
+        ctx.fail("Saturated red flashes more than 3 times a second over a large area (the red flash threshold).",
+                 evidence=f"{fl['red_over_three']} grid cells, {fl['red_area']}px^2. {ev}")
     if fl["over_three"] and fl["area"] >= FLASH_AREA_PX:
         ctx.fail("Content flashes more than 3 times a second over a large area.", evidence=ev)
-    elif fl["over_three"]:
+    elif fl["over_three"] or fl["red_over_three"]:
         ctx.review("A small area flashes more than 3 times a second; check it is below the general and red flash thresholds.", evidence=ev)
     else:  # sampling sees the first seconds and can miss frames (under load), so it never proves there is no flashing
         ctx.review(SAMPLED_NOTE if fl["resolvable"] else _too_slow(fl), evidence=ev)
-    # Frame sampling sees only the first seconds and can't judge red flashes; only moving content can do either.
+    # Frame sampling sees only the first seconds; only moving content can flash after them.
     if moving := _moving_content(ctx.data("media")):
-        ctx.review(f"{len(moving)} video/animated element(s) can flash later or in saturated red, which frame sampling "
+        ctx.review(f"{len(moving)} video/animated element(s) can flash after the sampled seconds, which frame sampling "
                    "can't assess; check them.", moving)
 
 
@@ -272,8 +277,9 @@ def check_three_flashes(ctx: Ctx) -> None:
     """At AAA, nothing may flash more than 3 times in any second, whatever its size."""
     if (fl := _flashing(ctx)) is None:
         return
-    if fl["over_three"]:
-        ctx.fail(f"Content flashes {fl['max']} times a second.", evidence=FLASH_NOTE)
+    if fl["over_three"] or fl["red_over_three"]:
+        ctx.fail(f"Content flashes {fl['max']} times a second." if fl["over_three"]
+                 else "Saturated red flashes more than 3 times a second.", evidence=FLASH_NOTE)
     else:
         ctx.review(SAMPLED_NOTE if fl["resolvable"] else _too_slow(fl), evidence=FLASH_NOTE)
 

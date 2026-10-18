@@ -48,6 +48,22 @@ def test_sampled_frames_never_pass_flashing():
         assert {f.status for f in fast} == {Status.NEEDS_REVIEW} and "sampled frames" in fast[0].description, criterion
 
 
+def test_saturated_red_flashes_fail_and_are_measured_by_wcags_formula():
+    """WCAG's red flash: opposing changes of more than 20 in (R-G-B)x320 with either state saturated red. Red against
+    a grey of equal luminance is no general flash, so before this only the luminance test ran and it passed silently."""
+    from agent_access.probes.layout import _flash_count, red_value
+    assert red_value((255, 0, 0)) == (320.0, True) and red_value((128, 128, 128)) == (0.0, False)
+    frames = [(255, 0, 0), (128, 128, 128)] * 5
+    values, sat = zip(*map(red_value, frames))
+    assert _flash_count(values, lambda j, a, b: abs(b - a) > 20 and (sat[j] or sat[j + 1])) == 4.5
+    base = {"frames": 20, "fps": 12.0, "flashes_per_second": [0.0] * 4, "cell_area_px": 30_000}
+    big = _rule_on("2.3.1", flashing={**base, "red_flashes_per_second": [5.0, 5.0, 0.0, 0.0]})
+    assert any(f.status is Status.FAIL and "red flash" in f.description for f in big)
+    small = _rule_on("2.3.1", flashing={**base, "cell_area_px": 1_000, "red_flashes_per_second": [5.0, 0.0, 0.0, 0.0]})
+    assert {f.status for f in small} == {Status.NEEDS_REVIEW}
+    assert {f.status for f in _rule_on("2.3.2", flashing={**base, "red_flashes_per_second": [5.0] * 4})} == {Status.FAIL}
+
+
 def test_time_limits_and_interruptions_are_flagged():
     audit = judge("o_timing_page.html", "2.2.1", "2.2.3", "2.2.4")
     for criterion in ("2.2.1", "2.2.3", "2.2.4"):
