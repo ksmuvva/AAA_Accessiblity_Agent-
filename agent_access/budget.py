@@ -25,6 +25,7 @@ class Budget:
     max_minutes: float = 60.0
     max_pages: int = 10
     reserve_calls: int = 60          # kept for the reviewer and the summary writer
+    review_calls_per_page: int = 20  # rough: reviewing one more page, moved into the reserve when the page starts
     model_calls: int = 0
     started: float = field(default_factory=time.monotonic)
 
@@ -48,6 +49,14 @@ class Budget:
     def hard_exhausted(self) -> bool:
         """Even the reserve is spent: closing stages stop too."""
         return self.model_calls >= self.max_model_calls
+
+    def admit_page(self) -> bool:
+        """Set one more page's review aside in the reserve before the page starts, so auditing it can't spend what
+        reviewing it needs. False when the working budget can't spare that."""
+        if self.model_calls + self.review_calls_per_page > self.working_calls:
+            return False
+        self.reserve_calls += self.review_calls_per_page
+        return True
 
     def remaining(self) -> dict:
         return {"calls": max(0, self.working_calls - self.model_calls),

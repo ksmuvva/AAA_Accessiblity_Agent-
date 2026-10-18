@@ -70,6 +70,20 @@ async def test_batch_continues_after_failure(tmp_path):
 
 
 @run_async
+async def test_a_cancelled_batch_lists_every_job(tmp_path):
+    async def second_is_cancelled(*args):
+        if len(list(tmp_path.glob('*/audit'))) == 1:
+            raise asyncio.CancelledError
+        return await fake_audit(*args)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_batch([HarnessConfig(url='https://example.com', output_dir=tmp_path)] * 3, tmp_path,
+                        process_runner=second_is_cancelled)
+    summary = json.loads((tmp_path / 'batch-summary.json').read_text())
+    assert [job['status'] for job in summary] == ['completed', 'cancelled', 'not_run']
+
+
+@run_async
 async def test_timeout_stops_real_worker(tmp_path):
     with pytest.raises(TimeoutError):
         await run_process([sys.executable, '-c', 'import time; time.sleep(30)'], tmp_path, .2)

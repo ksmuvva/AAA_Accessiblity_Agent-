@@ -636,12 +636,19 @@ def check_dragging_alternatives(ctx: Ctx) -> None:
                    [s["selector"] for s in stuck])
     if draggables:
         ctx.review(f"{len(draggables)} draggable element(s); check there's a non-drag way to do the same thing.", draggables)
-    if not sliders and not draggables:
-        if listener_targets(ctx.data("instrumentation").get("listeners", {}), "dragstart", "drop"):
+    listeners = ctx.data("instrumentation").get("listeners", {})
+    pressed = listener_targets(listeners, "mousedown", "pointerdown", "touchstart")
+    # Press plus move handlers (on the element or delegated to the document) are how custom drags are built.
+    if drags := pressed if listener_targets(listeners, "mousemove", "pointermove", "touchmove") else []:
+        ctx.review(f"Press and move handlers ({', '.join(drags[:3])}) can make a custom drag (a slider, map or sortable "
+                   "list); check anything done by dragging also works with a single pointer.",
+                   [t for t in drags if t not in ("window", "document")])
+    if not sliders and not draggables and not drags:
+        if listener_targets(listeners, "dragstart", "drop"):
             ctx.review("Drag-and-drop handlers found; check for a single-pointer alternative.")
         else:
             ctx.not_applicable("No dragging interactions found.")
-    elif sliders and not stuck and not draggables:
+    elif sliders and not stuck and not draggables and not drags:
         ctx.passed(f"{len(sliders)} slider(s) can be operated without dragging (arrow keys / click).")
 
 

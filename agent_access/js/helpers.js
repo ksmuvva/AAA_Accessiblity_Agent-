@@ -3,7 +3,13 @@ const idOf = (el) => {
   if (!__ids.map.has(el)) __ids.map.set(el, __ids.next++);
   return __ids.map.get(el);
 };
+// The parent in the flat tree: a shadow root's top element continues at its host.
+const up = (el) => el.parentElement || el.getRootNode?.().host || null;
+// Elements matching `sel` inside open shadow roots, which document.querySelectorAll doesn't enter.
+const shadowAll = (sel, root = document) => [...root.querySelectorAll('*')].filter((el) => el.shadowRoot)
+  .flatMap((el) => [...el.shadowRoot.querySelectorAll(sel), ...shadowAll(sel, el.shadowRoot)]);
 const cssPath = (el) => {
+  const host = el && el.getRootNode?.().host;
   const parts = [];
   while (el && el.nodeType === 1 && parts.length < 6) {
     if (el.id) { parts.unshift('#' + CSS.escape(el.id)); break; }
@@ -16,7 +22,8 @@ const cssPath = (el) => {
     parts.unshift(part);
     el = parent;
   }
-  return parts.join(' > ');
+  // Inside a shadow root: Playwright's '>>' continues the search inside the host's open shadow root.
+  return (host ? cssPath(host) + ' >> ' : '') + parts.join(' > ');
 };
 // Text of the elements an id-reference attribute points to (aria-labelledby, aria-describedby, ...).
 const idrefText = (ids) => (ids || '').split(/\s+/).map((id) => document.getElementById(id)?.innerText || '').join(' ').trim();
@@ -41,7 +48,7 @@ const parseRgb = (c) => {
 // Returns null when an image or gradient is involved (the caller samples pixels instead).
 const effectiveBg = (el) => {
   const layers = [];
-  for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
+  for (let node = el; node && node.nodeType === 1; node = up(node)) {
     const s = getComputedStyle(node);
     if (s.backgroundImage && s.backgroundImage !== 'none') return null;
     const c = parseRgb(s.backgroundColor);

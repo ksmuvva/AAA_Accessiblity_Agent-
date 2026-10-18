@@ -76,6 +76,8 @@ def judge(audit: AuditContext, tool: WcagTool, probes: dict) -> tuple[Ctx, str |
     ctx = Ctx(audit, tool, probes)
     try:
         tool.impl(ctx)
+        if "axe" in probes and not any(f.source == "axe" for f in ctx.findings):
+            ctx.axe()   # a rule that doesn't read axe itself still reports what axe found for its criterion
     except Exception as exc:  # A broken rule must not stop the sweep.
         return ctx, f"{type(exc).__name__}: {str(exc)[:200]}"
     # A probe that failed or stopped early saw only part of the page (or none): an empty result there proves nothing.

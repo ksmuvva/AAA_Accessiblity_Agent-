@@ -28,6 +28,22 @@ def test_budget_keeps_a_reserve_for_the_closing_stages():
     assert b.hard_exhausted
 
 
+def test_a_later_page_starts_only_when_its_review_fits():
+    from agent_access.context import AuditContext
+    from agent_access.team.planner import PlanState, run_lead_on
+
+    b = Budget(max_model_calls=120, reserve_calls=60, review_calls_per_page=20)
+    assert b.admit_page() and b.reserve_calls == 80 and b.working_calls == 40
+    b.spend(30)
+    assert not b.admit_page() and b.reserve_calls == 80   # 30 + 20 > 40: no room left to review another page
+    audit = AuditContext()
+    audit.budget, audit.pages = b, ["https://shop.example/", "https://shop.example/cart"]
+    state = PlanState(team=None, model=None, reviewer_model=None, review=True, min_pages=2, max_pages=2,
+                      lead_runs={"https://shop.example/": 2})
+    refused = asyncio.run(run_lead_on(audit, state, "https://shop.example/cart", ""))
+    assert "not started" in refused["error"] and "https://shop.example/cart" in state.exhausted
+
+
 # ---------------------------------------------------------------- the planner, offline, with scripted models
 
 import asyncio

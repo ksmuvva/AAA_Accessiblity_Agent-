@@ -171,3 +171,47 @@ def test_invalid_autocomplete_token_fails_input_purpose():
     audit = judge(html, "1.3.5")
     assert "#e" in selectors(audit, "1.3.5", Status.FAIL)
     assert "#n" in selectors(audit, "1.3.5", Status.NEEDS_REVIEW)  # personal data without a token: the agent judges
+
+
+def test_faded_text_fails_and_unmeasured_text_is_never_passed_over():
+    faded = judge('<!doctype html><html lang="en"><head><title>Faded</title></head><body><main><h1>Faded</h1>'
+                  '<div style="opacity:0.3"><p>Faded text</p></div></main></body></html>', "1.4.3")
+    assert "1 text element(s) are below the AA contrast ratio." in descriptions(faded, "1.4.3", Status.FAIL)
+    from test_tune_operable import _rule_on
+    over_image = [{"selector": "#hero h2", "text": "Summer sale", "why": "over an image or gradient, past the sampling limit"}]
+    for criterion in ("1.4.3", "1.4.6"):
+        findings = _rule_on(criterion, contrast={"text": [], "unmeasured_text": over_image})
+        assert {f.status for f in findings} == {Status.NEEDS_REVIEW} and "#hero h2" in findings[0].selectors, criterion
+
+
+def test_frames_and_shadow_roots_are_measured_with_selectors_the_tools_can_use():
+    from audit_helpers import judge_then
+    html = """<!doctype html><html lang="en"><head><title>Offers</title></head><body><main><h1>Offers</h1>
+<iframe title="Offers" srcdoc="<!doctype html><html lang=en><body><img src=a.png></body></html>"></iframe>
+<my-card></my-card><script>customElements.define('my-card', class extends HTMLElement { constructor() { super();
+  this.attachShadow({mode: 'open'}).innerHTML = '<img src=b.png><a href=/x>More offers</a>'; } });</script>
+</main></body></html>"""
+
+    async def resolve(audit):
+        page = await audit.page()
+        return {s: await page.locator(s).count() for f in found(audit, "1.1.1")[Status.FAIL] for s in f.selectors}
+    audit, counts = judge_then(html, "1.1.1", "2.4.4", then=resolve)
+    assert counts == {"iframe >> internal:control=enter-frame >> img": 1, "my-card >> img": 1}
+    from audit_helpers import data
+    assert "html > body > main > my-card >> a" in {link["selector"] for link in data(audit, "page")["links"]}
+
+
+def test_a_pop_up_shown_after_a_delay_is_still_tested():
+    # It appears 0.6 s after hover, later than the fixed 0.4 s wait the probe used to make.
+    html = """<!doctype html><html lang="en"><head><title>Tips</title><style>#tip{position:absolute;top:40px}</style></head>
+<body><main><h1>Tips</h1><button id="b" aria-describedby="tip">Help</button><div id="tip" role="tooltip" hidden>Saved</div>
+<script>let t; b.addEventListener('mouseenter', () => { t = setTimeout(() => { tip.hidden = false; }, 600); });
+b.addEventListener('mouseleave', () => { clearTimeout(t); });</script></main></body></html>"""
+    assert found(judge(html, "1.4.13"), "1.4.13").get(Status.FAIL)   # not dismissible with Escape
+
+
+def test_only_the_page_or_its_main_content_rotating_locks_the_orientation():
+    head = '<!doctype html><html lang="en"><head><title>Game</title><style>@media (orientation: portrait) {{ {} {{ transform: rotate(90deg); }} }}</style></head>'
+    body = '<body><span id="arrow">&#8594;</span><main><h1>Game</h1><p>' + "Play in any orientation. " * 20 + '</p></main></body></html>'
+    assert found(judge(head.format("main") + body, "1.3.4"), "1.3.4").get(Status.FAIL)
+    assert not found(judge(head.format("#arrow") + body, "1.3.4"), "1.3.4").get(Status.FAIL)   # a decorative arrow

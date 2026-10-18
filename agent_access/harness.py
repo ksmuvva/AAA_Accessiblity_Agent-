@@ -209,7 +209,12 @@ async def run_batch(configs: list[HarnessConfig], output_dir: Path, *, process_r
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     results = []
-    for config in configs:
-        results.append(await run_job(config, process_runner=process_runner))
-        write_json(output_dir / 'batch-summary.json', [asdict(result) for result in results])
+    try:
+        for config in configs:
+            results.append(await run_job(config, process_runner=process_runner))
+            write_json(output_dir / 'batch-summary.json', [asdict(result) for result in results])
+    except asyncio.CancelledError:   # the summary still lists the job that was stopped and the ones never started
+        write_json(output_dir / 'batch-summary.json', [asdict(r) for r in results] + [
+            {'status': 'cancelled' if i == 0 else 'not_run', 'config': asdict(c)} for i, c in enumerate(configs[len(results):])])
+        raise
     return results

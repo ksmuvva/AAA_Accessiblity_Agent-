@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Road signs practice test - DriveReady</title>
+  <style> body { font: 16px/1.5 sans-serif; color: #222; background: #fff; margin: 2rem; } </style>
+</head>
+<body>
+  <header><nav aria-label="Main"><a href="#tests">Tests</a> <a href="#progress">Progress</a></nav></header>
+  <main>
+    <h1>Road signs practice test</h1>
+    <p>You have 60 seconds. Your answers are sent when the time runs out.</p>
+    <form id="quiz" action="#results">
+      <fieldset>
+        <legend>What does a red circle with a white bar mean?</legend>
+        <input type="radio" id="a1" name="q1" value="a"><label for="a1">No entry</label>
+        <input type="radio" id="a2" name="q1" value="b"><label for="a2">No parking</label>
+      </fieldset>
+      <button type="submit">Send answers</button>
+    </form>
+    <p id="clock" aria-live="polite"></p>
+  </main>
+  <script>
+    let left = 60;
+    const tick = setInterval(() => { left -= 1; document.getElementById('clock').textContent = left + ' seconds left';
+      if (left <= 0) { clearInterval(tick); document.getElementById('quiz').innerHTML = '<p>Time is up. Answers sent.</p>'; } }, 1000);
+  </script>
+</body>
+</html>

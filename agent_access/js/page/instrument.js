@@ -11,11 +11,16 @@
     if (WATCH.has(type) && !I.paused && I.listeners.length < 4000) I.listeners.push({ type, target: this });
     return addListener.call(this, type, fn, opts);
   };
-  const setT = window.setTimeout, setI = window.setInterval;
+  const setT = window.setTimeout, setI = window.setInterval, clearT = window.clearTimeout;
+  I.short = new Set();   // pending timers under 2 s: page/settle.js waits for them
   window.setTimeout = function (fn, ms, ...rest) {
     if (ms >= 1000 && I.timers.length < 300) I.timers.push({ kind: 'timeout', ms, at: Date.now() - I.start });
-    return setT.call(this, fn, ms, ...rest);
+    if (typeof fn !== 'function' || !(ms < 2000) || I.short.size > 200) return setT.call(this, fn, ms, ...rest);
+    const id = setT.call(this, function (...args) { I.short.delete(id); return fn.apply(this, args); }, ms, ...rest);
+    I.short.add(id);
+    return id;
   };
+  window.clearTimeout = function (id) { I.short.delete(id); return clearT.call(this, id); };
   window.setInterval = function (fn, ms, ...rest) {
     if (I.timers.length < 300) I.timers.push({ kind: 'interval', ms, at: Date.now() - I.start });
     return setI.call(this, fn, ms, ...rest);

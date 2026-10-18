@@ -16,6 +16,8 @@ ALL_TAGS = ["wcag2a", "wcag21a", "wcag2aa", "wcag21aa", "wcag22aa", "wcag2aaa"]
 SC_TAG = re.compile(r"^wcag(\d)(\d)(\d+)$")
 OUTCOMES = {"violations": "fail", "incomplete": "needs_review", "passes": "pass"}
 MAX_SELECTORS = 5
+MAX_FRAMES = 10
+ENTER_FRAME = " >> internal:control=enter-frame >> "   # Playwright's step into an iframe
 
 
 @lru_cache(maxsize=1)
@@ -28,8 +30,10 @@ def criteria_from_tags(tags: list[str]) -> list[str]:
 
 
 def _selectors(nodes: list[dict]) -> list[str]:
-    # node["target"] is a list (iframe/shadow DOM path); join it into one readable selector.
-    return [" >>> ".join(map(str, n.get("target", []))) for n in nodes[:MAX_SELECTORS]]
+    # node["target"] holds one entry per frame level (outermost first); an entry inside shadow DOM is itself a list,
+    # host first. Joined as Playwright selectors, so inspect_element and the other tools can find the element.
+    return [ENTER_FRAME.join(" >> ".join(t) if isinstance(t, list) else str(t) for t in n.get("target", []))
+            for n in nodes[:MAX_SELECTORS]]
 
 
 @probe("axe")
@@ -39,8 +43,16 @@ async def axe(audit: AuditContext) -> dict:
     # axe-core registers its own window listeners; pause the instrumentation wrapper so they aren't counted as the page's.
     await page.evaluate("() => { if (window.__a11yInstr) window.__a11yInstr.paused = true; }")
     try:
-        if not await page.evaluate("() => typeof window.axe !== 'undefined'"):
-            await page.add_script_tag(content=axe_source())
+        # axe in the page and each frame, talking across origins, so axe.run reports inside frames too.
+        for i, frame in enumerate(page.frames[:MAX_FRAMES + 1]):
+            try:
+                if not await frame.evaluate("() => typeof window.axe !== 'undefined'"):
+                    await frame.add_script_tag(content=axe_source())
+                await frame.evaluate("() => axe.configure({allowedOrigins: ['<unsafe_all_origins>']})")
+            except Exception:
+                if i == 0:
+                    raise
+                # a detached or sandboxed frame: axe skips it
         raw = await page.evaluate(js("axe/run"), ALL_TAGS)
     finally:
         await page.evaluate("() => { if (window.__a11yInstr) window.__a11yInstr.paused = false; }")
