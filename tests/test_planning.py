@@ -45,6 +45,9 @@ def test_not_applicable_waits_until_the_controls_that_reveal_content_are_opened(
     audit.set_current("page")
     unmeasured = add_manual_finding(audit, "3.3.2", "not_applicable", "No form.", "list_forms returned [].")
     assert 'run_checks(["2.1.1"])' in unmeasured["error"]
+    for failed in (ProbeResult({}, "TimeoutError: page.evaluate"), ProbeResult({"results": [], "stopped_early": "reload failed"})):
+        audit.observations["page"] = {"disclosures": failed}   # a failed or partial measurement measured nothing
+        assert "couldn't be fully measured" in add_manual_finding(audit, "3.3.2", "not_applicable", "No form.", "None.")["error"]
     audit.observations["page"] = {"disclosures": ProbeResult({"results": [
         {"trigger": "#open-settings", "name": "Open settings", "opened_by": "Enter", "content": "Settings Language Save",
          "aria_expanded": {"before": "false", "after": "true"}, "is_dialog": False},
