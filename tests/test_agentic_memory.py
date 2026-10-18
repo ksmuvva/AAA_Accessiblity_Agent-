@@ -130,6 +130,10 @@ def test_remember_run_stores_profiles_judgements_and_overturns_as_lessons():
     lesson = mem.lessons(["1.1.1"], host="shop.example")[0]
     assert lesson["kind"] == "false_pass" and "image1.png" in lesson["text"]
     assert mem.lessons(["1.1.1"], host="other.example") == []
+    # A not-applicable the reviewer rejected is a lesson too (it raised ValueError and lost the run's memory).
+    audit.findings = [finding(HOME, "1.2.2", Status.NEEDS_REVIEW, description="no media", review_verdict="rejected",
+                              review_note="a video sits in the hero banner", original_status=Status.NOT_APPLICABLE)]
+    assert remember_run(audit)["lessons"] == 1 and mem.lessons(["1.2.2"], host="shop.example")[0]["kind"] == "false_na"
 
 
 def test_second_audit_of_a_site_starts_with_what_the_first_learned(tmp_path):
