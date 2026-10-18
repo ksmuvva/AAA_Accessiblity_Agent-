@@ -106,7 +106,7 @@ def check_page_language(ctx: Ctx) -> None:
     """The page's default language must be set (lang) and match its content."""
     ctx.axe()
     page = ctx.data("page")
-    lang, sample = page.get("page_lang"), page.get("main_text", "")[:1500]
+    lang, sample = page.get("page_lang"), page.get("lang_sample", page.get("main_text", ""))[:1500]
     detected = _script(sample)
     expected = _expected_script(lang)
     if lang and detected and expected and detected != expected:

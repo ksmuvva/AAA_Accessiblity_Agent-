@@ -157,3 +157,6 @@ def test_a_passage_in_another_latin_language_is_measured():
     assert fails(english + french) and not fails(english) and not fails(english + "<p>Bonjour à tous !</p>")
     assert not fails(english + french.replace("<p>", '<p lang="fr">'))
     assert fails(french * 3, criterion="3.1.1") and not fails(english * 3, criterion="3.1.1")
+    # Text a descendant marks with its own lang is not the parent's: a marked quotation fails neither criterion.
+    quoted = french.replace("<p>", '<p>Translation: <span lang="fr">').replace("</p>", "</span></p>")
+    assert not fails(english + quoted) and not fails(french.replace("<p>", '<p lang="fr">') * 3 + english, criterion="3.1.1")
