@@ -64,6 +64,21 @@ def test_fake_lists_and_space_columns_go_to_the_agent(structure):
     assert {"#fakelist", "#columns"} <= review
 
 
+def test_radios_with_no_group_label_go_to_the_agent():
+    """The eval's booking_1 false pass: an auditor said the seat-class radios were grouped; they had no group label.
+    A fieldset with a legend or a named radiogroup labels a set; a fieldset with no legend doesn't."""
+    html =('<!doctype html><html lang="en"><head><title>Book</title></head><body><main><h1>Book</h1><form>'
+            '<p>Seat class</p><p><input type="radio" id="std" name="cls"><label for="std">Standard</label>'
+            '<input type="radio" id="fst" name="cls"><label for="fst">First</label></p>'
+            '<fieldset><legend>Meal</legend><input type="radio" name="meal" id="m1"><label for="m1">Yes</label>'
+            '<input type="radio" name="meal" id="m2"><label for="m2">No</label></fieldset>'
+            '<div role="radiogroup" aria-label="Seat"><input type="radio" name="seat"><input type="radio" name="seat"></div>'
+            '<fieldset><input type="radio" name="bag" id="b1"><label for="b1">Yes</label>'
+            '<input type="radio" name="bag" id="b2"><label for="b2">No</label></fieldset></form></main></body></html>')
+    review = [f for f in found(judge(html, "1.3.1"), "1.3.1")[Status.NEEDS_REVIEW] if "radio" in f.description]
+    assert len(review) == 1 and review[0].evidence == "cls: Standard, First; bag: Yes, No" and len(review[0].selectors) == 2
+
+
 def test_spaced_out_letters_fail_meaningful_sequence(structure):
     assert "#spaced" in selectors(structure, "1.3.2", Status.FAIL)
     assert any("W E L C O M E" in (f.evidence or "") for f in found(structure, "1.3.2")[Status.FAIL])
