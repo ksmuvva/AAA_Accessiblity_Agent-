@@ -312,3 +312,35 @@ def test_evaluate_js_writes_are_blocked_and_reported(tmp_path):
     assert item["kind"] == "write_blocked" and item["action"] == "blocked" and item["tool"] == "evaluate_js"
     assert "/api/delete" in item["detail"] and item["page_url"] == f"{base}/index.html"
 
+
+
+def test_viewing_conditions_apply_and_are_undone():
+    """run_probe's conditions: forced colours, more contrast, a colour-vision simulation and phone metrics with touch,
+    each undone afterwards so later measurements see the page as loaded."""
+    import io
+
+    from PIL import Image
+
+    from agent_access.agent_tools.verify_tools import _apply_options, _reset_options
+    state = ("() => [matchMedia('(forced-colors: active)').matches, matchMedia('(prefers-contrast: more)').matches, "
+             "innerWidth, navigator.maxTouchPoints]")
+
+    async def scenario():
+        async with AuditContext(screen_reader="emulated") as audit:
+            await load_html_content(audit, "<html lang='en'><title>x</title><meta name='viewport' content='width=device-width'>"
+                                           "<body style='margin:0;background:#c00'>Hi</body></html>")
+            page = await audit.page()
+            red = lambda png: Image.open(io.BytesIO(png)).convert("RGB").getpixel((600, 400))
+            opts = {"forced_colors": "active", "contrast": "more", "mobile": True}
+            previous = await _apply_options(audit, opts)
+            during = await page.evaluate(state)
+            await _reset_options(audit, opts, previous)
+            after = await page.evaluate(state)
+            previous = await _apply_options(audit, {"vision": "achromatopsia"})
+            grey = red(await page.screenshot())
+            await _reset_options(audit, {"vision": "achromatopsia"}, previous)
+            return during, after, grey, red(await page.screenshot())
+
+    during, after, grey, colour = asyncio.run(scenario())
+    assert during == [True, True, 390, 5] and after == [False, False, 1280, 0]
+    assert grey[0] == grey[1] == grey[2] and colour == (204, 0, 0)

@@ -449,6 +449,8 @@ def check_focus_visible(ctx: Ctx) -> None:
     if hidden:
         ctx.review(f"{len(hidden)} element(s) receive focus while invisible or off-screen; inspect_element each: fine if it "
                    "appears on focus (a skip link), a failure if it never becomes visible.", [s["selector"] for s in hidden])
+    # Not a WCAG failure by itself, but evidence: these indicators vanish in Windows High Contrast (forced colours).
+    ctx.detail("indicator_lost_in_forced_colours", [s["selector"] for s in stops if s.get("forced_colors_lost")][:20])
 
 
 @wcag_tool("2.4.8", "check_location_information", domain="navigation", tech=(PW,), uses=("page",), judgement=True)

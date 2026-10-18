@@ -57,6 +57,14 @@ class ProbeOptions(BaseModel):
     viewport_height: int | None = Field(description="CSS pixels, e.g. 256; null for the default 800.")
     color_scheme: Literal["light", "dark"] | None = Field(description="prefers-color-scheme to emulate, or null.")
     reduced_motion: Literal["reduce", "no-preference"] | None = Field(description="prefers-reduced-motion, or null.")
+    forced_colors: Literal["active", "none"] | None = Field(description="forced-colors (Windows High Contrast), or null.")
+    contrast: Literal["more", "no-preference"] | None = Field(description="prefers-contrast, or null.")
+    vision: Literal["achromatopsia", "deuteranopia", "protanopia", "tritanopia", "blurredVision"] | None = Field(
+        description="A simulated colour-vision deficiency or blur, or null. Compare pixels, don't eyeball colours.")
+    mobile: bool | None = Field(description="true for a phone: 390x844 CSS px with touch input; null otherwise.")
+
+
+MEDIA = ("color_scheme", "reduced_motion", "forced_colors", "contrast")
 
 
 def _trim(value, depth: int = 0):
@@ -97,9 +105,16 @@ async def _apply_options(audit: AuditContext, opts: dict) -> dict:
         size["width"] = int(opts.get("viewport_width", size["width"]))
         size["height"] = int(opts.get("viewport_height", size["height"]))
         await page.set_viewport_size(size)
-    media = {k: opts[k] for k in ("color_scheme", "reduced_motion") if k in opts}
+    media = {k: opts[k] for k in MEDIA if k in opts}
     if media:
         await page.emulate_media(**media)
+    if "vision" in opts or opts.get("mobile"):   # the browser protocol: Playwright has no per-page switch for these
+        cdp = previous["cdp"] = await page.context.new_cdp_session(page)
+        if "vision" in opts:
+            await cdp.send("Emulation.setEmulatedVisionDeficiency", {"type": opts["vision"]})
+        if opts.get("mobile"):
+            await cdp.send("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": True})
+            await cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 5})
     return previous
 
 
@@ -107,9 +122,16 @@ async def _reset_options(audit: AuditContext, opts: dict, previous: dict) -> Non
     page = await audit.page()
     if ("viewport_width" in opts or "viewport_height" in opts) and previous.get("viewport"):
         await page.set_viewport_size(previous["viewport"])
-    media = {k: "no-override" for k in ("color_scheme", "reduced_motion") if k in opts}
+    media = {k: "no-override" for k in MEDIA if k in opts}
     if media:
         await page.emulate_media(**media)
+    if cdp := previous.get("cdp"):
+        if "vision" in opts:
+            await cdp.send("Emulation.setEmulatedVisionDeficiency", {"type": "none"})
+        if opts.get("mobile"):
+            await cdp.send("Emulation.clearDeviceMetricsOverride")
+            await cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
+        await cdp.detach()
 
 
 async def measure_probe(audit: AuditContext, probe: str, targets=(), options: ProbeOptions | dict | None = None,
