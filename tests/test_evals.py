@@ -84,3 +84,5 @@ def test_the_cost_guard_stops_starting_cases_at_the_cap(monkeypatch, tmp_path):
     assert seen == [1000, 400]                                  # each case may spend only what the run has left
     saved = json.loads(next((tmp_path / "results").glob("*.json")).read_text())
     assert (saved["model_calls"], saved["not_started"]) == (1200, 1)
+    args.cases, args.max_calls = ["a"], 600                    # the cap cuts the only case: still exit 5
+    assert asyncio.run(run_eval.main_async(args)) == 5

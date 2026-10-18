@@ -198,7 +198,8 @@ async def main_async(args: argparse.Namespace) -> int:
                                "memory": args.memory, "used_lessons": args.use_lessons, "lessons_written": lessons},
                               indent=2), encoding="utf-8")
     print(f"Results: {out}")
-    if stopped:
+    if stopped or (args.mode != "baseline" and spent >= args.max_calls):   # the cap also ends the case it interrupts
+        print(f"Cost guard: the run reached --max-calls {args.max_calls}; its results are partial.", file=sys.stderr)
         return 5
     broken = [r["name"] for r in results if r["errors"] or not r["reported"]]
     if broken or not summary["decided"]:
