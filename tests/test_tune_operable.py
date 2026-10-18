@@ -67,7 +67,7 @@ def test_focus_indicators_are_measured_in_pixels():
     but no pixel, so it fails like no outline at all. 2.4.13: a 1px pale ring is too weak at 3:1; a 2px dark outline
     and a 3px box-shadow ring (which the outline check couldn't size) reach a 2px perimeter's area."""
     rings = {"dark": "outline: 2px solid #000", "pale": "outline: 1px solid #ddd", "shadow": "outline: none; box-shadow: 0 0 0 3px #1a4fd0",
-             "none": "outline: none", "white": "outline: 2px solid #fff"}
+             "none": "outline: none", "white": "outline: 2px solid #fff", "offset": "outline: 2px solid #000; outline-offset: 16px"}
     html = ('<html lang="en"><title>Links</title><style>body { background: #fff } a { display: inline-block; margin: 20px; '
             'padding: 8px; color: #000 }' + "".join(f" #{k}:focus {{ {v} }}" for k, v in rings.items()) + '</style><main><h1>Links</h1>'
             + "".join(f'<a id="{k}" href="#{k}">{k.title()}</a>' for k in rings) + "</main></html>")

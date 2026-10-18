@@ -25,14 +25,19 @@ MAX_PIXEL_STOPS = 30  # visible stops whose indicator is measured in pixels (two
 FOCUS_MARGIN = 12     # CSS px around the element, where outlines, offsets and shadows are drawn
 
 
-async def _focus_pixels(page, stop: dict) -> dict:
-    """The focus indicator in pixels: the element and FOCUS_MARGIN around it, focused then blurred (animations
-    finished, caret hidden). WCAG 2.4.13 asks for a change of 3:1 or more over at least the area of a 2 CSS px
-    perimeter of the element (4 x (width + height))."""
-    view, (x, y), size = page.viewport_size, stop["at"].values(), stop["size"]
-    left, top = max(0, x - FOCUS_MARGIN), max(0, y - FOCUS_MARGIN)
-    clip = {"x": left, "y": top, "width": min(view["width"], x + size["width"] + FOCUS_MARGIN) - left,
-            "height": min(view["height"], y + size["height"] + FOCUS_MARGIN) - top}
+async def _focus_pixels(page, stop: dict) -> dict | None:
+    """The focus indicator in pixels: the element and FOCUS_MARGIN around it (plus an outline's offset and width),
+    focused then blurred (animations finished, caret hidden). WCAG 2.4.13 asks for a change of 3:1 or more over at
+    least the area of a 2 CSS px perimeter of the element (4 x (width + height)). None when the element or its
+    outline is partly off-screen: the pixels couldn't show the whole indicator, so the styles decide."""
+    view, (x, y), size, o = page.viewport_size, stop["at"].values(), stop["size"], stop["outline"]
+    reach = max(0, o["offset"] + o["width"]) if o["style"] != "none" else 0
+    if min(x, y) < reach or x + size["width"] + reach > view["width"] or y + size["height"] + reach > view["height"]:
+        return None
+    margin = FOCUS_MARGIN + reach
+    left, top = max(0, x - margin), max(0, y - margin)
+    clip = {"x": left, "y": top, "width": min(view["width"], x + size["width"] + margin) - left,
+            "height": min(view["height"], y + size["height"] + margin) - top}
     focused = await page.screenshot(clip=clip, animations="disabled")
     await page.evaluate(js("keyboard/focus_toggle"), "blur")
     try:
@@ -95,7 +100,8 @@ async def keyboard(audit: AuditContext) -> dict:
                 break
             seen.add(stop["id"])
             if measured < MAX_PIXEL_STOPS and stop["visible"] and stop["obscured"] == "none" and stop["tag"] != "iframe":
-                stop["pixels"], measured = await _focus_pixels(page, stop), measured + 1
+                if (pixels := await _focus_pixels(page, stop)) is not None:
+                    stop["pixels"], measured = pixels, measured + 1
             stops.append(stop)
     mouse_only = await page.evaluate(js("keyboard/mouse_only"), None)
     await page.evaluate(js("keyboard/reset"))
