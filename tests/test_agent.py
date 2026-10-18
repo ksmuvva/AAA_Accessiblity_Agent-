@@ -260,3 +260,16 @@ def test_cli_argument_validation():
         except SystemExit:
             continue
         raise AssertionError(f"accepted invalid args: {bad}")
+
+
+def test_login_flags(tmp_path):
+    state = tmp_path / "session.json"
+    state.write_text('{"cookies": [], "origins": []}')
+    assert parse_args(["https://x.com/account", "--storage-state", str(state)]).storage_state == state
+    assert parse_args(["https://x.com/login", "--save-login", str(state)]).save_login == state
+    for bad in (["--html-file", "a.html", "--save-login", str(state)], ["https://x.com", "--storage-state", str(tmp_path / "none.json")]):
+        try:
+            parse_args(bad)
+        except SystemExit:
+            continue
+        raise AssertionError(bad)

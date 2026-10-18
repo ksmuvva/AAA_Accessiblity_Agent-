@@ -100,6 +100,8 @@ class AuditContext:
     # Send agent traces to the OpenAI tracing dashboard (they include page content and screenshots): opt-in.
     tracing: bool = False
     output_dir: Path = Path("reports")
+    # A saved browser session (cookies and storage, from --save-login) to audit pages behind a sign-in.
+    storage_state: Path | None = None
     # Conformance target: "A", "AA", or "AAA". Criteria above it are still tested and reported separately.
     target_level: str = "AA"
     # Screen reader for the screen-reader engine: "nvda" (real NVDA via Guidepup; needs a visible browser),
@@ -193,8 +195,9 @@ class AuditContext:
                 self._playwright = await async_playwright().start()
                 self._browser = await self._playwright.chromium.launch(headless=self.headless)
                 # bypass_csp lets us inject axe-core into pages with strict Content-Security-Policy.
-                self._context = await self._browser.new_context(viewport=DEFAULT_VIEWPORT, bypass_csp=True,
-                                                                service_workers="block")
+                self._context = await self._browser.new_context(
+                    viewport=DEFAULT_VIEWPORT, bypass_csp=True, service_workers="block",
+                    storage_state=str(self.storage_state) if self.storage_state else None)
                 await self._context.add_init_script(INSTRUMENT_JS)
                 await self._context.add_init_script(SAFETY_JS)
                 await self._context.route("**/*", self._route)

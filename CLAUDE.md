@@ -82,6 +82,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - Default `--mode agent`: the planner agent owns the run within `--budget-calls` / `--budget-minutes` / `--max-pages` (`--pages` is the minimum). `--mode code` is the fixed per-page flow. The agents **click and type on the site by default** (writes stay blocked unless `--allow-submit`); `--no-interaction` forbids it. Also `--memory PATH|off`, `--delegation handoffs|tools`, `--measurement eager|lazy`.
   - `--screen-reader emulated` runs headless and silent. The default `auto` uses real NVDA if it's installed, which **opens a visible browser and speaks aloud**.
   - Traces (page content and screenshots) go to OpenAI only with `--trace`; `--no-trace` is a hidden no-op.
+  - Pages behind a sign-in: `main.py LOGIN_URL --save-login session.json` (a visible browser; sign in, press Enter), then `--storage-state session.json`. A page that redirects to a sign-in form is a warning (session expired).
   - Output goes to `reports/<host>-<timestamp>/` as `report.md`, `report.json` and `screenshots/`.
 - Tests: `python -m pytest`, about 5 min (`pytest.ini` runs files in parallel: `-n 6 --dist loadscope`; serial is about 10 min).
   - One test: `python -m pytest -n 0 tests/test_wcag_tools.py::test_bad_page_failures` (`-n 0` skips starting workers).
