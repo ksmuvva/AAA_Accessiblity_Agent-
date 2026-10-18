@@ -333,14 +333,14 @@ def test_viewing_conditions_apply_and_are_undone():
             red = lambda png: Image.open(io.BytesIO(png)).convert("RGB").getpixel((600, 400))
             opts = {"forced_colors": "active", "contrast": "more", "mobile": True}
             previous = await _apply_options(audit, opts)
-            during = await page.evaluate(state)
+            during = await page.evaluate(state) + [page.viewport_size["width"]]
             await _reset_options(audit, opts, previous)
-            after = await page.evaluate(state)
+            after = await page.evaluate(state) + [page.viewport_size["width"]]
             previous = await _apply_options(audit, {"vision": "achromatopsia"})
             grey = red(await page.screenshot())
             await _reset_options(audit, {"vision": "achromatopsia"}, previous)
             return during, after, grey, red(await page.screenshot())
 
     during, after, grey, colour = asyncio.run(scenario())
-    assert during == [True, True, 390, 5] and after == [False, False, 1280, 0]
+    assert during == [True, True, 390, 5, 390] and after == [False, False, 1280, 0, 1280]
     assert grey[0] == grey[1] == grey[2] and colour == (204, 0, 0)
