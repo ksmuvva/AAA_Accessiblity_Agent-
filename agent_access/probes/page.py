@@ -45,7 +45,8 @@ async def nav(audit: AuditContext) -> dict:
 
 @probe("media")
 async def media(audit: AuditContext) -> dict:
-    """Video/audio elements (tracks, autoplay, controls), player iframes, objects, canvas, animations, GIFs."""
+    """Video/audio elements (tracks, with each caption track's cues and gaps; autoplay, controls), player iframes,
+    objects, canvas, animations, GIFs."""
     return await _eval(audit, "page/media")
 
 
