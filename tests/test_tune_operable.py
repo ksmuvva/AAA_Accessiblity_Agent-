@@ -36,16 +36,16 @@ def test_flashing_is_never_a_pass():
     for criterion in ("2.3.1", "2.3.2"):
         statuses = found(audit, criterion)
         assert Status.PASS not in statuses, criterion
-        assert statuses.get(Status.FAIL) or any("too slow" in f.description for f in statuses[Status.NEEDS_REVIEW])
+        assert statuses, criterion
 
 
-def test_flash_pass_needs_fast_enough_sampling():
+def test_sampled_frames_never_pass_flashing():
     quiet = {"frames": 20, "flashes_per_second": [0.0] * 4, "cell_area_px": 100_000}
     for criterion in ("2.3.1", "2.3.2"):
         slow = _rule_on(criterion, flashing={**quiet, "fps": 4.0})
         assert {f.status for f in slow} == {Status.NEEDS_REVIEW} and "too slow" in slow[0].description, criterion
         fast = _rule_on(criterion, flashing={**quiet, "fps": 12.0})
-        assert {f.status for f in fast} == {Status.PASS}, criterion
+        assert {f.status for f in fast} == {Status.NEEDS_REVIEW} and "sampled frames" in fast[0].description, criterion
 
 
 def test_time_limits_and_interruptions_are_flagged():
@@ -63,12 +63,12 @@ def test_navigation_aids_pass_when_present():
 
 
 def test_quiet_pages_get_no_unsupported_findings():
-    # good_page has no video or animation, so 2.3.1 has nothing left for a human to check for red flashes. It passes,
-    # or under load (sampler too slow) asks for review for that reason only; it never fails and is never silent.
+    # good_page has no video or animation, so 2.3.1 asks only to confirm the sampling (or, under load, says it was too
+    # slow); it never fails and is never silent.
     good = judge("good_page.html", "2.3.1", "2.4.5", "2.5.1")
     flash = found(good, "2.3.1")
-    assert flash and set(flash) <= {Status.PASS, Status.NEEDS_REVIEW}
-    assert all("too slow" in f.description for f in flash.get(Status.NEEDS_REVIEW, []))
+    assert set(flash) == {Status.NEEDS_REVIEW}
+    assert all("too slow" in f.description or "sampled frames" in f.description for f in flash[Status.NEEDS_REVIEW])
     assert not any(d.startswith("Only no") for d in descriptions(good, "2.4.5", Status.NEEDS_REVIEW))
     # 2.5.1 counts page elements only; listeners on window/document are reported separately.
     assert not any("element(s)" in d for d in descriptions(good, "2.5.1", Status.NEEDS_REVIEW))

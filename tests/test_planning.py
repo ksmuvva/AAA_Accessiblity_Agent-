@@ -60,6 +60,8 @@ def test_automated_pass_or_not_applicable_stays_open_until_an_agent_judges():
     add_manual_finding(audit, "1.2.2", "not_applicable", "No media.", "Screenshot and accessibility tree show no media.")
     left = {i["criterion"] for i in open_items(audit)["open"]}
     assert "1.4.3" not in left and "1.2.2" not in left and len(left) == 53
+    for f in audit.findings:
+        f.review_verdict = "confirmed"   # the reviewer agreed: only now do the verdicts reach the report
     by_status = {c.wcag_criterion: c.status for c in compile_report(audit).criteria}
     assert by_status["1.4.3"] is Status.PASS and by_status["1.2.2"] is Status.NOT_APPLICABLE
     assert by_status["2.4.2"] is Status.NEEDS_REVIEW  # an automated pass alone is still only needs_review
@@ -135,6 +137,7 @@ def test_an_unconfirmed_automated_not_applicable_is_reported_as_needs_review():
     assert reported.status is Status.NEEDS_REVIEW and "no auditor confirmed it" in reported.summary
     assert next(i for i in open_items(audit)["open"] if i["criterion"] == "1.2.2")["status"] == "not_applicable"
     add_manual_finding(audit, "1.2.2", "not_applicable", "No media.", "No video, audio or embeds in the page or tree.")
+    audit.findings[-1].review_verdict = "confirmed"
     assert next(c for c in compile_report(audit).criteria if c.wcag_criterion == "1.2.2").status is Status.NOT_APPLICABLE
 
 
@@ -143,6 +146,8 @@ def test_not_applicable_aggregation():
     add_manual_finding(audit, "1.2.2", "not_applicable", "No video.", "No media found.")
     add_manual_finding(audit, "1.2.5", "not_applicable", "No video.", "No media found.")
     add_manual_finding(audit, "1.2.5", "fail", "Video lacks AD.", "A video was found later.")
+    for f in audit.findings:
+        f.review_verdict = "confirmed"
     by = {c.wcag_criterion: c.status for c in compile_report(audit).criteria}
     assert by["1.2.2"] is Status.NOT_APPLICABLE
     assert by["1.2.5"] is Status.FAIL  # a failure always wins

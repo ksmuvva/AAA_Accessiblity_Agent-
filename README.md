@@ -191,7 +191,7 @@ python main.py https://shop.example.com --process "add an item to the basket and
 | `--mode agent\|code` | `agent` (default): the planner runs the audit. `code`: a fixed per-page flow. |
 | `--model`, `--reviewer-model` | Override the models from `.env`. |
 | `--memory PATH\|off` | SQLite memory of past runs on a site (default `reports/memory.sqlite`). |
-| `--no-trace` | Don't send agent traces (page content and screenshots) to OpenAI. |
+| `--trace` | Send agent traces (page content and screenshots) to OpenAI. Off by default. |
 | `--skip-review` | Skip the reviewer. Cheaper, but less reliable. |
 
 Run `python main.py --help` for every option.
@@ -254,7 +254,7 @@ requests blocked. See [HARNESS_README.md](HARNESS_README.md) for the full detail
 - **Only audit sites you own or have permission to test.**
 - **Page content is treated as untrusted data.** The agents are told never to follow instructions found on a page,
   and a guardrail redacts common prompt-injection phrases from page content and records them in the report.
-- **Traces go to OpenAI by default.** They include page content and screenshots; `--no-trace` turns this off.
+- **Traces stay local unless you pass `--trace`.** They include page content and screenshots.
 - **Reports and logs contain content from the audited site.** Store them accordingly.
 
 ## Testing

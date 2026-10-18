@@ -60,8 +60,8 @@ def _player_review(ctx: Ctx, m: dict) -> None:
 
 # ---------------------------------------------------------------- 1.1 Text Alternatives
 
-@wcag_tool("1.1.1", "check_non_text_content", domain="lead", tech=(AXE, PW, SR), uses=("axe", "page", "screen_reader"),
-           judgement=True)
+@wcag_tool("1.1.1", "check_non_text_content", domain="lead", tech=(AXE, PW, SR),
+           uses=("axe", "page", "screen_reader", "media"), judgement=True)
 def check_non_text_content(ctx: Ctx) -> None:
     """Judge whether each image's text alternative conveys its purpose, and that decorative images are hidden."""
     ctx.axe()
@@ -83,8 +83,12 @@ def check_non_text_content(ctx: Ctx) -> None:
         ctx.review("Check every text alternative describes the image's purpose (not just 'image'), and that "
                    "informative CSS background images have a text equivalent.",
                    [i["selector"] for i in images], "; ".join(f"{i['tag']} alt={i['alt']!r}" for i in images[:10]))
-    elif not ctx.findings:  # no images, no background images, nothing from axe or the screen reader
-        ctx.not_applicable("No images, graphics, image buttons, image maps, or CSS background images on the page.")
+    if graphics := ctx.data("media").get("canvas", 0) + ctx.data("media").get("objects", 0):
+        ctx.review(f"{graphics} canvas, object or embed element(s) can show images or text no check reads; check each "
+                   "has a text alternative (fallback content, aria-label, or nearby text).")
+    if not ctx.findings:  # no images or graphics, nothing from axe or the screen reader
+        ctx.not_applicable("No images, graphics, canvas, objects, image buttons, image maps, or CSS background images on "
+                           "the page.")
     ctx.detail("images", [{"selector": i["selector"], "alt": i["alt"], "src": i["src"]} for i in images])
 
 
@@ -272,8 +276,12 @@ def check_orientation(ctx: Ctx) -> None:
     shorter = "portrait" if p["text_length"] < l["text_length"] else "landscape"
     message_in = [name for name, r in o.items() if r["rotate_message"]]
     evidence = json.dumps(o)
+    turned = [name for name, r in o.items() if 80 <= r.get("rotation", 0) <= 100]
     if len(message_in) == 1:
         ctx.fail(f"The page asks users to rotate their device in {message_in[0]} orientation.", evidence=evidence)
+    elif len(turned) == 1:
+        ctx.fail(f"The page turns its content 90 degrees in {turned[0]} orientation, locking it to one orientation.",
+                 evidence=evidence)
     elif longer > 200 and min(p["text_length"], l["text_length"]) < longer * 0.4:
         ctx.fail(f"Most content disappears in {shorter} orientation.", evidence=evidence)
     else:

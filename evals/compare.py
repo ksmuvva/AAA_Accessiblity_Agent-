@@ -2,8 +2,10 @@
 
     python -m evals.compare evals/results/eval-A.json evals/results/eval-B.json
 
-Prints each run's settings and metrics, the change in each metric, the model calls per case where both runs recorded
-them, and every criterion whose outcome changed. No model calls.
+Prints each run's settings (warning when they differ beyond the commit), the metrics with their 95% intervals, whether
+recall or the false-pass rate changed by more than the noise (their intervals don't overlap), the model calls per case
+where both runs recorded them, and every criterion whose outcome changed. With A a --mode baseline run, the recall change
+is the agents' lift over code alone. No model calls.
 """
 
 from __future__ import annotations
@@ -13,7 +15,15 @@ import sys
 from pathlib import Path
 
 METRICS = ("recall", "precision", "decided", "false_passes")
-SETTINGS = ("git_commit", "mode", "measurement", "interaction", "model", "reviewer_model", "used_lessons")
+SETTINGS = ("git_commit", "mode", "measurement", "interaction", "model", "reviewer_model", "used_lessons", "repeats")
+
+
+def verdict(a: list | None, b: list | None) -> str:
+    """Two 95% intervals: apart means a real change; overlapping means this data can't tell."""
+    if not a or not b:
+        return ""
+    return "  (higher, beyond the noise)" if b[0] > a[1] else "  (lower, beyond the noise)" if b[1] < a[0] else \
+        "  (no detectable change)"
 
 
 def load(path: str) -> dict:
@@ -23,11 +33,16 @@ def load(path: str) -> dict:
 def compare(a: dict, b: dict) -> list[str]:
     lines = ["            " + "  ".join(f"{k:>14}" for k in ("A", "B"))]
     lines += [f"{k:>12}" + "  ".join(f"{str(run.get(k)):>14}" for run in (a, b)) for k in SETTINGS]
+    differ = [k for k in SETTINGS[1:] if a.get(k) != b.get(k) and k != "mode"]
+    if differ:
+        lines.append("Warning: the runs differ in " + ", ".join(differ) + "; the change may come from that.")
     lines.append("")
     for k in METRICS:
         x, y = a["metrics"].get(k), b["metrics"].get(k)
         delta = f"{y - x:+.3f}" if isinstance(x, (int, float)) and isinstance(y, (int, float)) else "n/a"
-        lines.append(f"{k:>12}{str(x):>16}{str(y):>16}   change {delta}")
+        ci = {"recall": "recall_ci", "false_passes": "false_pass_rate_ci"}.get(k)
+        noise = verdict(a["metrics"].get(ci), b["metrics"].get(ci)) if ci else ""
+        lines.append(f"{k:>12}{str(x):>16}{str(y):>16}   change {delta}{noise}")
 
     cases_a = {c["name"]: c for c in a["cases"]}
     cases_b = {c["name"]: c for c in b["cases"]}

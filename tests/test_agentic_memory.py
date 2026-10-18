@@ -202,11 +202,11 @@ def test_agent_names_memory_relies_on_still_exist():
     import inspect
 
     from agent_access.memory import NO_MEMORY_AGENTS, SPECIALIST_DOMAINS
-    from agent_access.team import orchestrator, summarizer
+    from agent_access.team import orchestrator, planner, reviewer, summarizer
     from agent_access.team.specialists import SPECIALISTS
 
     assert {name: domain for domain, (name, *_) in SPECIALISTS.items()} == SPECIALIST_DOMAINS
-    sources = inspect.getsource(summarizer) + inspect.getsource(orchestrator)
+    sources = "".join(inspect.getsource(m) for m in (summarizer, orchestrator, reviewer, planner))
     for name in NO_MEMORY_AGENTS:
         assert f'name="{name}"' in sources, name
 

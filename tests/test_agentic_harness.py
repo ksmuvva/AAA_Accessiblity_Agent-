@@ -381,8 +381,8 @@ def test_chained_states_on_an_http_page_are_rebuilt_and_replays_count_no_new_saf
 
 
 def test_a_browser_error_page_is_never_labelled_as_a_state():
-    async def scenario():
-        async with AuditContext(screen_reader="emulated", tracing=False) as audit:
+    async def scenario():   # allow_offsite: an inline page may not navigate anywhere otherwise
+        async with AuditContext(screen_reader="emulated", tracing=False, allow_offsite=True) as audit:
             await load_html_content(audit, HTML, PAGE)
             await click(audit, "#broken")                            # nothing listens there: Chromium's error page
             result = await label_state(audit, "old-timetable")
@@ -408,7 +408,57 @@ def test_evals_allow_interaction_like_the_cli(monkeypatch):
     monkeypatch.setattr(agent_access.team, "run_audit", fake_run_audit)
     case = {"name": "flow_explore", "file": "cases/flow_explore.html", "expected": {"3.3.2": "fail"}}
     for no_interaction in (False, True):
-        args = Namespace(no_trace=True, measurement="eager", use_lessons=False, mode="code", model=None,
+        args = Namespace(trace=False, measurement="eager", use_lessons=False, mode="code", model=None,
                          reviewer_model=None, skip_review=False, no_interaction=no_interaction)
         asyncio.run(run_case(case, args))
     assert seen == [True, False]
+
+
+def test_an_exploration_that_reaches_no_state_leaves_its_flow_owed(tmp_path):
+    report = {"states": [], "flows": [], "links_worth_auditing": [], "blocked": []}
+    scripts = {
+        "audit planner": [call("set_goal", {"pages": 1, "level": "AA", "flows": ["open the settings"], "reason": "a flow"}),
+                          call("audit_pages", {"page_keys": [PAGE], "focus": ""}),
+                          call("explore", {"page_key": PAGE, "goal": "open the settings"}),   # finishes, labels nothing
+                          call("finish", {"reason": "done"}), *[PLAN_DONE] * 3],
+        "lead auditor": [FINAL, FINAL],
+        "explorer": [report],
+        "reviewer": [confirm_all],
+        "summary writer": [SUMMARY],
+    }
+    model, audit, outcome = run(scripts, tmp_path, interaction=True)
+    assert '"unexplored_flows": ["open the settings"]' in tool_outputs(model, "audit planner", 4)[-1]
+
+
+def test_the_pages_the_user_asked_for_are_a_floor(tmp_path):
+    import functools
+    import http.server
+    import threading
+
+    from agent_access.agent_tools.browser_tools import open_url
+
+    page = '<!doctype html><html lang="en"><head><title>{0}</title></head><body><main><h1>{0}</h1>{1}</main></body></html>'
+    (tmp_path / "index.html").write_text(page.format("Ferries", '<a href="a.html">Times</a> <a href="b.html">Fares</a>'))
+    for name, title in (("a.html", "Times"), ("b.html", "Fares")):
+        (tmp_path / name).write_text(page.format(title, ""))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(
+        http.server.SimpleHTTPRequestHandler, directory=str(tmp_path)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    root = f"http://127.0.0.1:{server.server_address[1]}/"
+    model = RouterModel({"audit planner": [call("finish", {"reason": "done"}), *[PLAN_DONE] * 3],   # it opens nothing more
+                         "lead auditor": [FINAL] * 6, "reviewer": [confirm_all] * 3, "summary writer": [SUMMARY]})
+
+    async def scenario():
+        async with AuditContext(output_dir=tmp_path, screen_reader="emulated", tracing=False) as audit:
+            await open_url(audit, root + "index.html")
+            from agent_access.engine import run_sweep
+            await run_sweep(audit)
+            return await run_agentic_audit(audit, pages=3, model=model, progress=lambda m: None)
+    try:
+        outcome = asyncio.run(scenario())
+    finally:
+        server.shutdown()
+    assert [e["page"] for e in outcome.plan_log if e["action"] == "pages_floor"] == [root + "a.html", root + "b.html"]
+    assert {e["page"] for e in outcome.plan_log if e["action"] == "lead_floor"} == {root + "index.html", root + "a.html",
+                                                                                     root + "b.html"}
+    assert not any(w.startswith("Asked for") for w in outcome.warnings)

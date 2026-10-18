@@ -121,6 +121,28 @@ async def test_worker_failure_preserves_partial_report(tmp_path):
     assert Path(result.artifacts['report_json']).is_file()
 
 
+@run_async
+async def test_a_stopped_worker_is_incomplete_and_its_reason_is_kept(tmp_path):
+    async def stopped(command, directory, timeout):
+        await fake_audit(command, directory, timeout)
+        (directory / 'stderr.log').write_text('Traceback ...\nSIGTERM: stopped by the runner\n')
+        return 4
+    result = await run_job(HarnessConfig(url='https://example.com', output_dir=tmp_path), process_runner=stopped)
+    assert result.status == 'incomplete' and result.exit_code == 3 and 'report_json' in result.artifacts
+    assert result.error.endswith('(stderr: SIGTERM: stopped by the runner)')
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX signals')
+@run_async
+async def test_timeout_asks_the_worker_to_stop_before_killing_it(tmp_path):
+    marker = tmp_path / 'terminated'
+    script = (f"import pathlib, signal, sys, time\nsignal.signal(signal.SIGTERM, lambda *a: "
+              f"(pathlib.Path({str(marker)!r}).write_text('partial report'), sys.exit(4)))\ntime.sleep(30)")
+    with pytest.raises(TimeoutError):
+        await run_process([sys.executable, '-c', script], tmp_path, 1)
+    assert marker.read_text() == 'partial report'
+
+
 def test_worker_command_keeps_review_and_safe_defaults(tmp_path):
     command = HarnessConfig(url='https://example.com').command(tmp_path)
     assert '--skip-review' not in command

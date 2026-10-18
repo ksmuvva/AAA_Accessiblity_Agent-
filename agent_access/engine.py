@@ -24,7 +24,7 @@ from typing import Literal
 
 from agents import FunctionTool, RunContextWrapper, function_tool
 
-from agent_access.context import AuditContext, call_tool
+from agent_access.context import AuditContext, call_tool, is_state_key
 from agent_access.models import Status
 from agent_access.probes import PROBE_ORDER, PROBES, collect
 from agent_access.agent_tools.report_tools import _criterion_status
@@ -65,6 +65,11 @@ def judgement_question(audit: AuditContext, tool: WcagTool, findings=()) -> str:
     return question
 
 
+# Rules whose patterns are English words ("skip", "help", "left of", "confirm"): on another language, finding nothing
+# proves nothing.
+ENGLISH_PATTERNS = {"1.3.3", "2.4.1", "3.2.5", "3.2.6", "3.3.3", "3.3.4", "3.3.7"}
+
+
 def judge(audit: AuditContext, tool: WcagTool, probes: dict) -> tuple[Ctx, str | None]:
     """Apply one rule to its probes' data (synchronous: nothing is awaited, recorded, or cached). Returns the rule's
     Ctx and the error if the rule raised. run_rule passes the cached data; verify_finding passes fresh data."""
@@ -73,6 +78,15 @@ def judge(audit: AuditContext, tool: WcagTool, probes: dict) -> tuple[Ctx, str |
         tool.impl(ctx)
     except Exception as exc:  # A broken rule must not stop the sweep.
         return ctx, f"{type(exc).__name__}: {str(exc)[:200]}"
+    # A probe that failed or stopped early saw only part of the page (or none): an empty result there proves nothing.
+    incomplete = ctx.probe_errors + [f"{n}: stopped early" for n, p in probes.items() if p.data.get("stopped_early")]
+    lang = (probes["page"].data.get("page_lang") or "en").lower() if "page" in probes else "en"
+    if tool.criterion in ENGLISH_PATTERNS and not lang.startswith("en"):
+        incomplete.append(f"its word patterns are English and the page is lang={lang[:10]}")
+    for f in ctx.findings if incomplete else ():
+        if f.status in (Status.PASS, Status.NOT_APPLICABLE):
+            f.status = Status.NEEDS_REVIEW
+            f.description += f" [Not established: {'; '.join(incomplete)[:200]}]"
     return ctx, None
 
 
@@ -143,7 +157,7 @@ async def run_site_tests(audit: AuditContext) -> None:
 
     They compare cached navigation snapshots, so the browser stays where it is; only the page cursor moves.
     """
-    pages = [p for p in audit.pages if p in audit.swept]
+    pages = [p for p in audit.pages if p in audit.swept and not is_state_key(p)]   # a state is not another page
     if len(pages) < 2:
         return
     target = {r.wcag_criterion for r in audit.target_rules()}

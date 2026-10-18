@@ -65,6 +65,9 @@ def test_agent_judgements_replace_each_other_but_not_failures():
     add_manual_finding(audit, "1.1.1", "fail", "Hero alt is a file name.", "alt='hero.jpg'", ["#hero"])
     refused = add_manual_finding(audit, "1.1.1", "pass", "Fine.", "Looks fine.")
     assert "error" in refused and "reviewer" in refused["error"]
+    assert {c.wcag_criterion: c.status for c in compile_report(audit).criteria}["2.4.2"] is Status.NEEDS_REVIEW  # unreviewed
+    for f in audit.findings:
+        f.review_verdict = "confirmed"
     by = {c.wcag_criterion: c for c in compile_report(audit).criteria}
     assert by["1.1.1"].status is Status.FAIL and len(by["1.1.1"].findings) == 2
     assert by["2.4.2"].status is Status.PASS
@@ -129,7 +132,8 @@ def test_a_failing_review_batch_does_not_stop_the_rest():
     audit, log, errors = asyncio.run(scenario())
     assert len(errors) == 1 and "ModelBehaviorError" in errors[0]
     assert [r["verdict"] for r in log].count("not_reviewed") == 25 and [r["verdict"] for r in log].count("confirmed") == 5
-    assert all(f.status is Status.FAIL for f in audit.findings)  # unreviewed failures keep their status
+    assert all(f.status is Status.FAIL for f in audit.findings)  # unreviewed failures keep their recorded status...
+    assert compile_report(audit).counts["fail"] == 1             # ...and the confirmed ones carry the report
 
 
 SITE = {

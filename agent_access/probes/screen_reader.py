@@ -265,8 +265,14 @@ WIDGET_ROLE_WORDS = ("button", "link", "edit", "check box", "radio button", "com
                      "menu button", "switch", "search", "text", "split button", "dialog", "list item", "option")
 
 
+# A state NVDA may say in the same phrase as the role ("visited link"). Only these: a name that ends in a role word
+# ("Advanced search", "Help menu item") is a name, not a role.
+_STATES = re.compile(r"^(?:(?:visited|clickable|same page|unlabeled|unlabelled|selected|not selected|current page|"
+                     r"checked|not checked|pressed|not pressed|expanded|collapsed|read only|required|invalid entry) )+")
+
+
 def _is_role_word(part: str) -> bool:
-    return any(part == w or part.endswith(" " + w) for w in WIDGET_ROLE_WORDS)
+    return _STATES.sub("", part) in WIDGET_ROLE_WORDS
 
 
 def spoken_role(spoken: str) -> str | None:

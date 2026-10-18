@@ -8,6 +8,7 @@ navigate away; the page is reloaded afterwards. Server-side validation therefore
 from __future__ import annotations
 
 from agent_access.context import AuditContext
+from agent_access.intent import destroys
 from agent_access.jsassets import js
 from agent_access.probes import probe
 from agent_access.probes.interaction import newly_visible, visible_ids
@@ -23,6 +24,9 @@ PERSONAL_FIELD_PATTERN = (
 )
 FILL_INVALID = {"email": "not-an-email", "tel": "abc", "url": "not a url", "text": "x", "search": "x",
                 "password": "x", "textarea": "x"}
+# What a form says it does: its action URL and its buttons' words.
+FORM_INTENT_JS = """(f) => [f.getAttribute('action') || '', ...[...f.querySelectorAll('button, input[type=submit], input[type=image]')]
+  .map(b => b.innerText || b.value || b.getAttribute('aria-label') || '')].join(' | ')"""
 TEXT_FIELDS = "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea"
 
 
@@ -36,7 +40,7 @@ async def _fill(page, root, mode: str) -> list[str]:
     fields = root.locator(TEXT_FIELDS)
     for i in range(min(await fields.count(), 25)):
         try:
-            kind = await fields.nth(i).evaluate("(el) => el.tagName === 'TEXTAREA' ? 'textarea' : el.type")
+            kind = await fields.nth(i).evaluate("(el) => el.tagName === 'TEXTAREA' ? 'textarea' : el.type", timeout=2000)
             if kind in FILL_INVALID:
                 await fields.nth(i).fill("" if mode == "empty" else FILL_INVALID[kind], timeout=2000)
                 changed.append(kind)
@@ -78,7 +82,10 @@ async def submit_test(audit: AuditContext, form: str | None, mode: str) -> dict:
         return {"form": form, "mode": mode, "error": f"No element matches {form!r}."}
     root = page.locator(form) if form else page.locator("body")
     is_form = bool(form) and form != "body" and await root.evaluate("(el) => el.tagName === 'FORM'")
+    if is_form and (danger := destroys(await root.evaluate(FORM_INTENT_JS))):
+        return {"form": form, "mode": mode, "skipped": f"Not submitted: it looks destructive ({danger})."}
     before = await visible_ids(page)
+    live_before = set((await page.evaluate(js("forms/error_state"), form) or {}).get("alerts", []))
     has_required = await page.evaluate(js("forms/has_required"), form)
     state, new_text = None, []
     async with audit.network_guard() as blocked:
@@ -86,7 +93,9 @@ async def submit_test(audit: AuditContext, form: str | None, mode: str) -> dict:
         how = await _submit(root, is_form)
         if how != NO_SUBMIT:
             await page.wait_for_timeout(SUBMIT_WAIT_MS)
-            state = await page.evaluate(js("forms/error_state"), form)
+            # Live-region text that was there before (a cookie notice, a cart count) is not this form's error message.
+            if state := await page.evaluate(js("forms/error_state"), form):
+                state["alerts"] = [t for t in state["alerts"] if t not in live_before]
             new_text = [{"selector": n["selector"], "text": n["text"]} for n in await newly_visible(page, before) if n["text"]]
     if audit.can_restore():
         await audit.restore_page()
@@ -108,12 +117,12 @@ async def change_test(audit: AuditContext, form: str | None) -> dict:
         for i in range(min(await controls.count(), MAX_CHANGE_CONTROLS)):
             control = controls.nth(i)
             try:
-                selector = await control.evaluate(js("forms/css_path"))
+                selector = await control.evaluate(js("forms/css_path"), timeout=2000)
                 url_before, seen = page.url, len(blocked)
-                if await control.evaluate("(el) => el.tagName") == "SELECT":
+                if await control.evaluate("(el) => el.tagName", timeout=2000) == "SELECT":
                     if await control.locator("option").count() < 2:
                         continue
-                    current = await control.evaluate("(el) => el.selectedIndex")
+                    current = await control.evaluate("(el) => el.selectedIndex", timeout=2000)
                     await control.select_option(index=1 if current != 1 else 0, timeout=2000)
                 else:
                     await control.check(timeout=2000)

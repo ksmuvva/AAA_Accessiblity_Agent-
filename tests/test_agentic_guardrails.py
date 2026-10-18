@@ -166,11 +166,9 @@ def test_write_summary_gives_the_guardrail_the_audit_it_summarises():
     model = RouterModel({"summary writer": [claim, SUMMARY]})
     report = SiteReport(target_level="AA", pages=[], counts={}, criteria=[])
 
-    async def scenario():
+    async def scenario():   # the claim trips the guardrail once; write_summary retries and gets the honest summary
         audit = AuditContext(screen_reader="emulated")
         audit.findings = [_finding(Status.FAIL)]
-        with pytest.raises(OutputGuardrailTripwireTriggered):
-            await write_summary(report, [], [], audit=audit, run_config=_config(model))
         return audit, await write_summary(report, [], [], audit=audit, run_config=_config(model))
 
     audit, summary = asyncio.run(scenario())

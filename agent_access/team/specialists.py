@@ -12,12 +12,12 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from agents import Agent, ModelSettings, RunContextWrapper, function_tool
+from agents import Agent, RunContextWrapper, function_tool
 from agents.models.interface import Model
 
 from agent_access.team.guardrails import apply_guardrails
 from agent_access.team.handoffs import HandoffBrief, brief_section, report_of, run_subagent
-from agent_access.team.runtime import run_config
+from agent_access.team.runtime import run_config, settings
 from agent_access.catalogue.catalogue import LEVEL_ORDER
 from agent_access.agent_tools import INSPECTION_TOOLS
 from agent_access.agent_tools.report_tools import record_finding, record_findings
@@ -48,7 +48,7 @@ everything recorded.
 ## Plan, judge, repeat
 Every criterion in your area needs your judgement, not only the ones automation couldn't decide.
 1. Call get_open_items. If done is true, finish.
-2. For each open criterion call get_criterion, gather the evidence it asks for, and judge it:
+2. Read the open criteria (run_checks returns several at once), gather the evidence each asks for, and judge it:
    - a judgement question: decide it from the page and the check's evidence;
    - a measured check that passed: confirm from its details and the page that it covered the relevant content
      (pass), or name what it missed (needs_review), or record a defect you observed (fail);
@@ -68,7 +68,7 @@ Every criterion in your area needs your judgement, not only the ones automation 
 FORMS_INSTRUCTIONS = """You are the forms specialist on a WCAG 2.2 audit team. The page is already loaded. Audit its forms,
 sign-in, timeouts, and status messages.
 
-1. Call get_open_items and list_forms, then get_criterion for each open criterion to read its results.
+1. Call get_open_items and list_forms, then run_checks on the open criteria to read their results.
 2. The automated run already submitted each form empty and with invalid values and changed its
    selects/checkboxes. Call test_forms only for a form it missed (e.g. a form-like container without <form>).
 3. Judge and record_finding where your tools ask for judgement, especially:
@@ -99,7 +99,7 @@ animation, flashing, and moving content.
 NAVIGATION_INSTRUCTIONS = """You are the navigation and interaction specialist on a WCAG 2.2 audit team. The page is already loaded.
 Audit keyboard use, focus, navigation, pointer input, timing, and predictability.
 
-1. Call get_open_items, then get_criterion for each open criterion (keyboard, focus, bypass blocks, target
+1. Call get_open_items, then run_checks on the open criteria (keyboard, focus, bypass blocks, target
    size, pointer, timing, consistency). Measured checks (2.1.1, 2.1.2, 2.4.7, 2.4.11, 2.5.2, 2.5.8, 3.2.1,
    1.4.13) pass only when you confirm from their details (tab stops walked, triggers tested) and a screenshot
    that they covered the page's controls, menus and widgets.
@@ -144,7 +144,7 @@ def build_specialist(domain: str, model: str | Model | None = None, *, hands_bac
         tools=[open_items_tool(domain), *criterion_tools_for(domain), *retests, *INSPECTION_TOOLS, evaluate_js,
                record_finding, record_findings],
         model=model,
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=settings(model, parallel_tool_calls=False),
         output_type=SpecialistReport,
     ))
 

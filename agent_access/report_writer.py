@@ -23,15 +23,18 @@ TABLE_ORDER = (Status.FAIL, Status.NEEDS_REVIEW, Status.NOT_TESTED, Status.PASS,
 
 
 def review_line(review_log: list[dict]) -> str:
-    """One line on what the reviewer did with failures and with the passes agents judged."""
+    """One line on what the reviewer did with failures and with the passes and not-applicables agents judged."""
     parts = []
-    for status, noun in (("fail", "failure"), ("pass", "judged pass")):
+    for status, noun in (("fail", "failure"), ("pass", "judged pass"), ("not_applicable", "judged not-applicable")):
         group = [r for r in review_log if r.get("status", "fail") == status]
         if not group:
             continue
         demoted = sum(1 for r in group if r.get("demoted"))
         unreviewed = sum(1 for r in group if r["verdict"] == "not_reviewed")
-        line = f"{len(group)} {noun}(s) re-checked: {len(group) - demoted - unreviewed} kept, {demoted} moved to needs review"
+        uncertain = sum(1 for r in group if r["verdict"] == "uncertain" and not r.get("demoted"))
+        kept = len(group) - demoted - unreviewed - uncertain
+        line = (f"{len(group)} {noun}(s) re-checked: {kept} kept, {demoted} moved to needs review"
+                + (f", {uncertain} kept though the reviewer was uncertain" if uncertain else ""))
         parts.append(line + (f", {unreviewed} not reviewed" if unreviewed else ""))
     return "; ".join(parts) + "."
 
@@ -156,7 +159,7 @@ def render_markdown(outcome: AuditOutcome) -> str:
         lines.append("")
     if tripwires:
         lines += ["## Tripwires", "", f"{len(tripwires)} guarded action(s) were blocked or flagged while the agents "
-                  "worked; none reached the server.", ""]
+                  "worked.", ""]
         lines += [f"- {_md_escape(json.dumps(t, default=str)[:300])}" for t in tripwires[:20]] + [""]
 
     if outcome.review_log:
@@ -178,7 +181,7 @@ def render_markdown(outcome: AuditOutcome) -> str:
     for status, heading, intro in (
         (Status.NOT_TESTED, "Not tested", "These criteria were not evaluated. They must not be treated as passing."),
         (Status.NOT_APPLICABLE, "Not applicable", "The audited pages have no content these criteria apply to."),
-        (Status.PASS, "Passed on review", ""),
+        (Status.PASS, "Passed (reviewer confirmed)", ""),
     ):
         group = [c for c in report.criteria if c.status is status]
         if group:

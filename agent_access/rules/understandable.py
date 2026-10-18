@@ -191,27 +191,33 @@ def check_context_changes_on_focus(ctx: Ctx) -> None:
         pass_walk(ctx, kb, "Moving focus never triggered navigation.")
 
 
-@wcag_tool("3.2.2", "check_context_changes_on_input", domain="forms", tech=(PW,), uses=("forms",))
+@wcag_tool("3.2.2", "check_context_changes_on_input", domain="forms", tech=(PW,), uses=("forms", "instrumentation"))
 def check_context_changes_on_input(ctx: Ctx) -> None:
     """Changing a setting must not change the context unless users were told."""
     forms = ctx.data("forms")
-    if not form_fields(forms):
+    if not (fields := form_fields(forms)):
         ctx.not_applicable("No form controls on the page.")
         return
     changed = [c for change in forms.get("changes", []) for c in change["changes"]]
-    with_handler = [f for f in form_fields(forms) if f.get("change_handler")]
+    choice = {f["selector"] for f in fields if f["tag"] == "select" or f["type"] in ("checkbox", "radio")}
+    untested = sorted(choice - {c["control"] for c in changed})
+    listeners = ctx.data("instrumentation").get("listeners", {})
+    listened = {*listeners.get("change", []), *listeners.get("input", [])}   # script listeners, not only onchange=
+    with_handler = [f["selector"] for f in fields if f["selector"] not in choice
+                    and (f.get("change_handler") or f["selector"] in listened)]
     if context_changes := _context_changes(forms):
         ctx.fail(f"Changing {len(context_changes)} control(s) navigates away without the user submitting.",
                  [c["control"] for c in context_changes],
                  "; ".join(f"{c['control']} -> {(c['navigation'] or ['URL changed'])[0]}" for c in context_changes[:3]))
-    elif changed:
-        ctx.passed(f"Changing {len(changed)} select/checkbox/radio control(s) caused no navigation.")
-    elif with_handler:
-        # Only text fields, which the probe doesn't change; an onchange handler is the sign to look at.
-        ctx.review(f"{len(with_handler)} text field(s) have an onchange handler; inspect_element each to see whether "
-                   "changing the value navigates, submits, or moves focus.", [f["selector"] for f in with_handler])
-    else:
-        ctx.passed("Only text fields, none with an onchange handler; no select, checkbox, or radio to change.")
+    if untested:
+        ctx.review(f"{len(untested)} select/checkbox/radio control(s) were not changed by the automated test; change "
+                   "each (fill_field, click_element) and watch for navigation, a new window or focus moving.", untested)
+    if with_handler:  # text fields, which the probe doesn't change: a change or input handler is the sign to look at
+        ctx.review(f"{len(with_handler)} text field(s) have a change or input handler; inspect_element each to see "
+                   "whether changing the value navigates, submits, or moves focus.", with_handler)
+    if not ctx.findings:
+        ctx.passed(f"Changing {len(changed)} select/checkbox/radio control(s) caused no navigation." if changed else
+                   "Only text fields, none with a change or input handler; no select, checkbox, or radio to change.")
 
 
 def _order_conflicts(a: list[str], b: list[str]) -> list[str]:
@@ -317,7 +323,7 @@ def check_change_on_request(ctx: Ctx) -> None:
         ctx.passed("No automatic redirects, pop-ups, or unannounced new windows found.")
 
 
-@wcag_tool("3.2.6", "check_consistent_help", domain="navigation", tech=(PW,), uses=("nav",))
+@wcag_tool("3.2.6", "check_consistent_help", domain="navigation", tech=(PW,), uses=("nav", "page"))
 def check_consistent_help(ctx: Ctx) -> None:
     """Help mechanisms repeated across pages must be in the same relative order."""
     if not ctx.data("nav").get("help") and len(_site_pages(ctx)) < 2:
@@ -401,7 +407,7 @@ def check_labels_or_instructions(ctx: Ctx) -> None:
         ctx.passed(f"All {len(fields)} fields have visible labels.")
 
 
-@wcag_tool("3.3.3", "check_error_suggestions", domain="forms", tech=(PW,), uses=("forms",), judgement=True)
+@wcag_tool("3.3.3", "check_error_suggestions", domain="forms", tech=(PW,), uses=("forms", "page"), judgement=True)
 def check_error_suggestions(ctx: Ctx) -> None:
     """Judge whether error messages say how to fix the input."""
     forms = _forms_or_na(ctx)
@@ -421,7 +427,7 @@ def check_error_suggestions(ctx: Ctx) -> None:
         ctx.review("No error messages were shown during testing, so suggestions couldn't be assessed.")
 
 
-@wcag_tool("3.3.4", "check_error_prevention_legal_financial_data", domain="forms", tech=(PW,), uses=("forms",),
+@wcag_tool("3.3.4", "check_error_prevention_legal_financial_data", domain="forms", tech=(PW,), uses=("forms", "page"),
            judgement=True)
 def check_error_prevention_legal_financial_data(ctx: Ctx) -> None:
     """Legal, financial, data-changing, or test submissions must be reversible, checked, or confirmed."""

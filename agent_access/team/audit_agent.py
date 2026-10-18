@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from agents import Agent, ModelSettings, RunContextWrapper
+from agents import Agent, RunContextWrapper
 from agents.models.interface import Model
 
 from agent_access.team.explorer import return_to_page
@@ -22,6 +22,7 @@ from agent_access.agent_tools.verify_tools import evaluate_js
 from agent_access.context import AuditContext, Delegation
 from agent_access.engine import criterion_tools_for
 from agent_access.models import LeadNotes
+from agent_access.team.runtime import settings
 
 # How the lead reaches the specialists: SDK "handoffs" (agent mode) or delegate "tools" (code mode, parallel forks).
 # One source of truth: context.Delegation, the type of AuditContext.delegation and of the CLI flag.
@@ -46,9 +47,10 @@ and you report only what evidence supports.
 - get_criterion(criterion) shows one criterion: its status, the check's findings, evidence and details,
   judgements so far, and what you must judge (your_judgement_needed). Your area is content, structure, visual
   design, language, and name/role/value, e.g. 1.1.1, 1.4.3, 3.1.2, 4.1.2.
-- run_checks(criteria) measures criteria on this page state; it's cheap, because each check collects only what it
-  needs. run_all_checks() measures everything at once. Before the page is declared done, code measures any
-  target-level criterion nobody measured, so measure early only what you are about to judge.
+- run_checks(criteria) measures criteria on this page state and returns their results and what to judge, so it
+  also reads several criteria in one call; it's cheap, because each check collects only what it needs, once.
+  run_all_checks() measures everything at once. Before the page is declared done, code measures any target-level
+  criterion nobody measured, so measure early only what you are about to judge.
 - evaluate_js(function) runs your own read-only script in the page when no check measures what you need (a
   custom widget's states, text over an image, an element's geometry). Cite the script id it returns in your
   evidence ("script S2"); the reviewer re-runs cited scripts. A fail that rests only on a script result goes to
@@ -65,7 +67,8 @@ tried. It does not tell you what to do next. You plan the order and the method f
 2. Choose the next step that settles the most for this page:
    - measure: run_checks the unmeasured criteria you are about to judge (run_all_checks on a dense page);
 {delegation}
-   - judge yourself: get_criterion, gather evidence (below), and record the judgements.
+   - judge yourself: read them (run_checks for several, get_criterion for one), gather evidence (below), and
+     record the judgements.
    For example, hand a form-heavy page to the forms specialist early; on a page with no media, confirm the media
    criteria not applicable together after checking the screenshot; skip a specialist whose area has nothing open.
 3. Go back to 1. Never stop while get_open_items says done is false.
@@ -142,9 +145,10 @@ server are blocked unless the user allowed them; if a step is blocked, note it i
 def _instructions(ctx: RunContextWrapper[AuditContext], agent: Agent[AuditContext]) -> str:
     audit = ctx.context
     handoffs = {h.tool_name for h in agent.handoffs}
+    explorer = "explore_page" in handoffs | {t.name for t in agent.tools}   # a handoff, or a tool with --delegation tools
     return (INSTRUCTIONS.replace("{level}", audit.target_level)
             .replace("{delegation}", DELEGATION_HANDOFF if "audit_forms" in handoffs else DELEGATION_TOOLS)
-            .replace("{subagents}", SUBAGENTS_SECTION if "explore_page" in handoffs else "")
+            .replace("{subagents}", SUBAGENTS_SECTION if explorer else "")
             .replace("{process}", PROCESS_SECTION if audit.allow_interaction else ""))
 
 
@@ -169,6 +173,6 @@ def build_audit_agent(model: str | Model | None = None, *, delegation: str = "to
         handoffs=[],
         model=model,
         # Browser tools serialise on a lock anyway; sequential calls keep the reasoning easy to follow.
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=settings(model, parallel_tool_calls=False),
         output_type=LeadNotes,
     ))

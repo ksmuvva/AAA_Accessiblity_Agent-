@@ -57,7 +57,8 @@
                   "probes": [
                     "axe",
                     "page",
-                    "screen_reader"
+                    "screen_reader",
+                    "media"
                   ]
                 }
               ],
@@ -407,7 +408,7 @@
                 }
               ],
               "manual_checks": [
-                "If the orientation check is inconclusive, read its evidence (text length and any 'rotate your device' message in portrait and landscape) with get_criterion; if it never ran, call rerun_check. Take a screenshot and use inspect_element on the main layout container to look for CSS that locks orientation (transform: rotate on the body, an overlay shown by an orientation media query). Record fail only if content or a message blocks one orientation; otherwise record pass with the evidence."
+                "If the orientation check is inconclusive, read its evidence (text length and any 'rotate your device' message in portrait and landscape) with get_criterion; if it never ran, call run_checks. Take a screenshot and use inspect_element on the main layout container to look for CSS that locks orientation (transform: rotate on the body, an overlay shown by an orientation media query). Record fail only if content or a message blocks one orientation; otherwise record pass with the evidence."
               ]
             },
             {
@@ -569,7 +570,7 @@
                 }
               ],
               "manual_checks": [
-                "If the zoom check is inconclusive or never ran, call rerun_check. Read its evidence: text clipped, lost off-screen, or not scaling at 200%. Use inspect_element on the elements it names to confirm they hold real content (not decorative or duplicated text) and take a screenshot to see whether the content is still reachable another way. Record fail for lost content or function; pass when nothing is lost."
+                "If the zoom check is inconclusive or never ran, call run_checks. Read its evidence: text clipped, lost off-screen, or not scaling at 200%. Use inspect_element on the elements it names to confirm they hold real content (not decorative or duplicated text) and take a screenshot to see whether the content is still reachable another way. Record fail for lost content or function; pass when nothing is lost."
               ]
             },
             {
@@ -771,7 +772,7 @@
                 }
               ],
               "manual_checks": [
-                "If the text-spacing check is inconclusive or never ran, call rerun_check and read which elements clipped their text. Use inspect_element on them for fixed heights or overflow: hidden, and judge whether the clipped text carried meaning. Record fail when content or function is lost with the WCAG spacing values; pass when nothing is lost."
+                "If the text-spacing check is inconclusive or never ran, call run_checks and read which elements clipped their text. Use inspect_element on them for fixed heights or overflow: hidden, and judge whether the clipped text carried meaning. Record fail when content or function is lost with the WCAG spacing values; pass when nothing is lost."
               ]
             },
             {
@@ -1459,7 +1460,7 @@
                 }
               ],
               "manual_checks": [
-                "If the check is inconclusive or never ran, call rerun_check and read which focused elements were covered and by what. Use inspect_element on the covering element (sticky header, cookie banner, chat widget) and the focused element, and take a screenshot. Record fail if a focused element is entirely hidden by other content; pass when none is."
+                "If the check is inconclusive or never ran, call run_checks and read which focused elements were covered and by what. Use inspect_element on the covering element (sticky header, cookie banner, chat widget) and the focused element, and take a screenshot. Record fail if a focused element is entirely hidden by other content; pass when none is."
               ]
             },
             {
@@ -1920,7 +1921,7 @@
                 }
               ],
               "manual_checks": [
-                "If the focus check is inconclusive or never ran, call rerun_check and read the evidence: elements that move focus away or try to navigate when they receive focus. Use inspect_element on them for onfocus handlers. Record fail when receiving focus alone opens a window, navigates, submits a form, or moves focus elsewhere; pass when Tab moved through the page without any of that."
+                "If the focus check is inconclusive or never ran, call run_checks and read the evidence: elements that move focus away or try to navigate when they receive focus. Use inspect_element on them for onfocus handlers. Record fail when receiving focus alone opens a window, navigates, submits a form, or moves focus elsewhere; pass when Tab moved through the page without any of that."
               ]
             },
             {
@@ -1940,7 +1941,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "forms"
+                    "forms",
+                    "instrumentation"
                   ]
                 }
               ],
@@ -2042,7 +2044,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "nav"
+                    "nav",
+                    "page"
                   ]
                 }
               ],
@@ -2126,7 +2129,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "forms"
+                    "forms",
+                    "page"
                   ]
                 }
               ],
@@ -2151,7 +2155,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "forms"
+                    "forms",
+                    "page"
                   ]
                 }
               ],

@@ -5,7 +5,7 @@
   const I = (window.__a11yInstr = { timers: [], listeners: [], opens: 0, start: Date.now(), paused: false });
   const WATCH = new Set(['click', 'dblclick', 'mousedown', 'mouseup', 'mousemove', 'pointerdown', 'pointerup',
     'pointermove', 'touchstart', 'touchmove', 'touchend', 'gesturestart', 'devicemotion', 'deviceorientation',
-    'keydown', 'keypress', 'keyup', 'dragstart', 'drop', 'wheel']);
+    'keydown', 'keypress', 'keyup', 'dragstart', 'drop', 'wheel', 'change', 'input']);
   const addListener = EventTarget.prototype.addEventListener;
   EventTarget.prototype.addEventListener = function (type, fn, opts) {
     if (WATCH.has(type) && !I.paused && I.listeners.length < 4000) I.listeners.push({ type, target: this });

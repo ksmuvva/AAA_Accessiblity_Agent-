@@ -9,6 +9,7 @@ from agents import RunContextWrapper, function_tool
 
 from agent_access.context import AuditContext, no_page
 from agent_access.models import AuditReport, CriterionResult, Finding, Judgement, SiteReport, Status
+from agent_access.rules import REGISTRY
 
 # Worst status first; used to combine per-page results into a site-wide result.
 SEVERITY = [Status.FAIL, Status.NEEDS_REVIEW, Status.NOT_TESTED, Status.PASS, Status.NOT_APPLICABLE]
@@ -32,16 +33,20 @@ def add_manual_finding(
     if not evidence.strip():
         return {"error": "Evidence is required: describe what you observed on the page."}
     new_status = Status(status)
+    tool = REGISTRY[rule.wcag_criterion]
+    if new_status is Status.PASS and not tool.judgement and tool.name not in audit.attempted_on(audit.current_url):
+        return {"error": f"{rule.wcag_criterion} is measured, and its check hasn't run on this page state: run_checks "
+                         "it first, then confirm what it measured."}
     earlier = [f for f in audit.findings if f.page_url == audit.current_url and f.source == "agent"
                and f.wcag_criterion == rule.wcag_criterion]
-    earlier_fails = [f for f in earlier if f.status is Status.FAIL]
+    earlier_fails = [f for f in earlier if Status.FAIL in (f.status, f.original_status)]
     if earlier_fails and new_status in (Status.PASS, Status.NOT_APPLICABLE):
         return {"error": f"A failure is already recorded for {rule.wcag_criterion} on this page "
                          f"({earlier_fails[0].description!r}). The reviewer decides whether failures stand; "
                          "record needs_review if you now doubt it, or another fail for a further defect."}
     # A new judgement replaces earlier agent judgements with a different status (findings with the same
     # status accumulate, e.g. one fail per defective element). Agent failures are never replaced.
-    superseded = {id(f) for f in earlier if f.status is not new_status and f.status is not Status.FAIL}
+    superseded = {id(f) for f in earlier if f.status is not new_status and f not in earlier_fails}
     audit.findings = [f for f in audit.findings if id(f) not in superseded]
     finding = Finding(
         rule_id=rule.rule_id,
@@ -64,7 +69,8 @@ def _criterion_status(findings: list[Finding]) -> tuple[Status, str]:
 
     Precedence: fail > agent pass > needs_review > not_applicable > automated pass (-> needs_review) > not_tested.
     A failure the reviewer sent to needs_review still blocks an agent pass: doubt about a failure must never
-    turn into a pass.
+    turn into a pass. This is what the agents see; the report (_criterion_results) also counts an agent's verdict only
+    once the reviewer confirmed it.
     """
     fails = [f for f in findings if f.status is Status.FAIL]
     if fails:
@@ -74,7 +80,7 @@ def _criterion_status(findings: list[Finding]) -> tuple[Status, str]:
         return Status.NEEDS_REVIEW, f"{len(demoted)} reported failure(s) could not be confirmed on review; a human must decide."
     # A manual review by the agent can resolve automated "needs review" results, but never a failure.
     if any(f.status is Status.PASS and f.source == "agent" for f in findings):
-        return Status.PASS, "Passed on review."
+        return Status.PASS, "Passed; an auditor judged it."
     if any(f.status is Status.NEEDS_REVIEW for f in findings):
         return Status.NEEDS_REVIEW, "Some checks could not be decided automatically; manual review required."
     if any(f.status is Status.NOT_APPLICABLE for f in findings):
@@ -103,19 +109,38 @@ def report_notes(audit: AuditContext) -> list[str]:
 
 UNCONFIRMED_NOT_APPLICABLE = ("The automated check found nothing this criterion applies to, but no auditor confirmed it; "
                               "content that appears only after interaction may have been missed.")
+DECIDED = (Status.PASS, Status.NOT_APPLICABLE, Status.FAIL)
+
+
+def _reported(f: Finding) -> Finding:
+    """As the report counts it: an agent's pass, not-applicable or fail stands only once the reviewer confirmed it."""
+    if f.source == "agent" and f.status in DECIDED and f.review_verdict != "confirmed":
+        return f.model_copy(update={"status": Status.NEEDS_REVIEW})
+    return f
 
 
 def _criterion_results(audit: AuditContext, page_url: str, rules) -> list[CriterionResult]:
-    """Each criterion's reported status on a page. Like an automated pass, an automated not-applicable that no auditor
-    confirmed is reported as needs_review: the check only saw the page as loaded (the agents' own views still show
-    what the check found)."""
+    """Each criterion's reported status on a page. Only a confirmed review makes a pass or a not-applicable: an agent's
+    verdict the reviewer didn't confirm, an automated pass or not-applicable no auditor confirmed (the check only saw
+    the page as loaded), and an agent's not-applicable over a check that measured content are all needs_review. The
+    agents' own views (_criterion_status) still show what was recorded."""
     page_findings = audit.findings_for(page_url)
     results = []
     for rule in rules:
-        rule_findings = [f for f in page_findings if f.wcag_criterion == rule.wcag_criterion]
+        raw = [f for f in page_findings if f.wcag_criterion == rule.wcag_criterion]
+        unconfirmed = [f for f in raw if f.source == "agent" and f.status in DECIDED and f.review_verdict != "confirmed"]
+        rule_findings = [_reported(f) for f in raw]
         status, summary = _criterion_status(rule_findings)
+        measured_pass = any(f.status is Status.PASS and f.source != "agent" for f in rule_findings)
         if status is Status.NOT_APPLICABLE and not any(f.source == "agent" for f in rule_findings):
             status, summary = Status.NEEDS_REVIEW, UNCONFIRMED_NOT_APPLICABLE
+        elif status is Status.NOT_APPLICABLE and measured_pass:
+            status, summary = Status.NEEDS_REVIEW, "An auditor found nothing this applies to, but its check measured content."
+        elif status is Status.PASS:
+            summary = "Passed: an auditor's judgement, confirmed by the reviewer."
+        elif status is Status.NEEDS_REVIEW and unconfirmed:
+            why = sorted({(f.review_verdict or "not reviewed").replace("_", " ") for f in unconfirmed})
+            summary = f"{len(unconfirmed)} auditor judgement(s) not confirmed on review ({', '.join(why)}); a human must decide."
         results.append(CriterionResult(
             rule_id=rule.rule_id, wcag_criterion=rule.wcag_criterion, title=rule.title, level=rule.level,
             status=status, summary=summary,
