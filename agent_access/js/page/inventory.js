@@ -12,13 +12,21 @@ const headingBefore = (el) => {
   const h = headingEls.filter((x) => x.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).pop();
   return h ? text(h).slice(0, 80) : null;
 };
+// The nearest ancestor that isn't inline: a <span> or <strong> wrapped around a link is not its context.
+const blockOf = (el) => {
+  let b = el.parentElement;
+  while (b && b.parentElement && getComputedStyle(b).display.startsWith('inline')) b = b.parentElement;
+  return b || el;
+};
 const links =[...document.querySelectorAll('a[href]'), ...shadowAll('a[href]')].filter(isVisible).slice(0, 200).map((a) => ({
   selector: cssPath(a), text: text(a).slice(0, 80), name: linkName(a), aria_label: a.getAttribute('aria-label'), title: a.getAttribute('title'),
   href: a.href, new_window: a.target === '_blank',
   warns_new_window: /new (window|tab)|opens in|external/i.test(text(a) + ' ' + (a.getAttribute('aria-label') || '') + ' ' + (a.getAttribute('title') || '')),
   context: text(a.closest('p, li, td, h1, h2, h3, h4, h5, h6') || a).slice(0, 120),
-  // Nothing around it supplies its purpose: alone in its element, no aria-describedby, not in a table cell.
-  bare: text(a.parentElement || a) === text(a) && !a.hasAttribute('aria-describedby') && !a.closest('td, th'),
+  // Nothing around it supplies its purpose: alone in its block and its paragraph or list item, no aria-describedby,
+  // not in a table cell.
+  bare: [blockOf(a), a.closest('p, li, h1, h2, h3, h4, h5, h6') || a].every((c) => text(c) === text(a))
+    && !a.hasAttribute('aria-describedby') && !a.closest('td, th'),
   heading: headingBefore(a),
 }));
 const IMAGES = 'img, [role="img"], svg, input[type="image"], area';
