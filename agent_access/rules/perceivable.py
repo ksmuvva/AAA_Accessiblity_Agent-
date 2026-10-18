@@ -365,8 +365,8 @@ def check_audio_control(ctx: Ctx) -> None:
 
 
 def _text_contrast(ctx: Ctx, level: str) -> None:
-    items = ctx.data("contrast").get("text", [])
-    if not items:
+    items, unmeasured = ctx.data("contrast").get("text", []), ctx.data("contrast").get("unmeasured_text", [])
+    if not items and not unmeasured:
         ctx.not_applicable("No visible text found.")
         return
     failing = [i for i in items if i["ratio"] < text_requirement(i["large_text"], level)]
@@ -383,7 +383,11 @@ def _text_contrast(ctx: Ctx, level: str) -> None:
         ctx.review(f"{len(sampled)} text element(s) over images/gradients measured below {level} by pixel sampling; take a "
                    "screenshot and inspect_element to judge the text against its real background.",
                    [r["selector"] for r in sampled], show(sampled))
-    if not failing:
+    if unmeasured:
+        ctx.review(f"{len(unmeasured)} text element(s) over images or gradients couldn't be measured; take a screenshot and "
+                   "judge them.", [u["selector"] for u in unmeasured], "; ".join(f"'{u['text'][:30]}': {u['why']}"
+                                                                         for u in unmeasured[:4]))
+    if items and not failing:
         ctx.passed(f"All {len(items)} text elements meet the {level} contrast ratio (lowest {min(i['ratio'] for i in items)}:1).")
     ctx.detail("lowest_ratios", sorted(({"text": i["text"][:30], "ratio": i["ratio"], "method": i["method"]} for i in items),
                                        key=lambda x: x["ratio"]))

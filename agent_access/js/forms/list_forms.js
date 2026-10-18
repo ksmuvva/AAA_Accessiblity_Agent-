@@ -4,7 +4,8 @@ const fieldLabel = (el) => (el.labels && el.labels[0] && el.labels[0].innerText.
   || el.getAttribute('aria-label') || idrefText(el.getAttribute('aria-labelledby')) || (el.getAttribute('title') || '').trim();
 const forms = [...document.querySelectorAll('form')];
 // Controls outside any <form> still form a "form" for auditing purposes.
-const orphans = [...document.querySelectorAll('input, select, textarea')].filter((el) => !el.form && el.type !== 'hidden');
+const orphans = [...document.querySelectorAll('input, select, textarea'), ...shadowAll('input, select, textarea')]
+  .filter((el) => !el.form && el.type !== 'hidden');
 const groups = forms.map((f) => ({ el: f, controls: [...f.elements] }));
 if (orphans.length) groups.push({ el: null, controls: orphans });
 return groups.slice(0, 10).map((g, i) => {

@@ -6,13 +6,14 @@ const bodyFont = (document.body && parseFloat(getComputedStyle(document.body).fo
 const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
 const all = [...document.querySelectorAll('body *')].slice(0, 6000);
 const headingSel = 'h1,h2,h3,h4,h5,h6,[role="heading"]';
-const links = [...document.querySelectorAll('a[href]')].filter(isVisible).slice(0, 200).map((a) => ({
+const links = [...document.querySelectorAll('a[href]'), ...shadowAll('a[href]')].filter(isVisible).slice(0, 200).map((a) => ({
   selector: cssPath(a), text: text(a).slice(0, 80), name: linkName(a), aria_label: a.getAttribute('aria-label'), title: a.getAttribute('title'),
   href: a.href, new_window: a.target === '_blank',
   warns_new_window: /new (window|tab)|opens in|external/i.test(text(a) + ' ' + (a.getAttribute('aria-label') || '') + ' ' + (a.getAttribute('title') || '')),
   context: text(a.closest('p, li, td, h1, h2, h3, h4, h5, h6') || a).slice(0, 120),
 }));
-const images = [...document.querySelectorAll('img, [role="img"], svg, input[type="image"], area')].filter((el) => el.tagName === 'AREA' || isVisible(el)).slice(0, 80).map((el) => ({
+const IMAGES = 'img, [role="img"], svg, input[type="image"], area';
+const images = [...document.querySelectorAll(IMAGES), ...shadowAll(IMAGES)].filter((el) => el.tagName === 'AREA' || isVisible(el)).slice(0, 80).map((el) => ({
   selector: cssPath(el), tag: el.tagName.toLowerCase(), alt: el.hasAttribute('alt') ? el.getAttribute('alt') : null,
   aria_label: el.getAttribute('aria-label'), hidden: !!el.closest('[aria-hidden="true"]') || el.getAttribute('role') === 'presentation',
   src: (el.currentSrc || el.getAttribute('src') || '').split('/').pop().slice(0, 60),

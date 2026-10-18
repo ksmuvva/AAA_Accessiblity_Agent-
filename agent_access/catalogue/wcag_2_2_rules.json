@@ -89,7 +89,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "media"
+                    "media",
+                    "axe"
                   ]
                 }
               ],
@@ -114,7 +115,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "media"
+                    "media",
+                    "axe"
                   ]
                 }
               ],
@@ -403,7 +405,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "orientation"
+                    "orientation",
+                    "axe"
                   ]
                 }
               ],
@@ -513,7 +516,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "media"
+                    "media",
+                    "axe"
                   ]
                 }
               ],
@@ -565,7 +569,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "zoom"
+                    "zoom",
+                    "axe"
                   ]
                 }
               ],
@@ -615,7 +620,8 @@
                     "Colour Contrast Analyser method"
                   ],
                   "probes": [
-                    "contrast"
+                    "contrast",
+                    "axe"
                   ]
                 }
               ],
@@ -767,7 +773,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "text_spacing"
+                    "text_spacing",
+                    "axe"
                   ]
                 }
               ],
@@ -831,7 +838,8 @@
                   "probes": [
                     "keyboard",
                     "disclosures",
-                    "instrumentation"
+                    "instrumentation",
+                    "axe"
                   ]
                 }
               ],
@@ -886,7 +894,8 @@
                     "disclosures",
                     "instrumentation",
                     "page",
-                    "media"
+                    "media",
+                    "axe"
                   ]
                 }
               ],
@@ -973,7 +982,8 @@
                   "probes": [
                     "media",
                     "page",
-                    "instrumentation"
+                    "instrumentation",
+                    "axe"
                   ]
                 }
               ],
@@ -1025,7 +1035,8 @@
                   ],
                   "probes": [
                     "page",
-                    "instrumentation"
+                    "instrumentation",
+                    "axe"
                   ]
                 }
               ],
@@ -1404,7 +1415,8 @@
                     "Playwright"
                   ],
                   "probes": [
-                    "page"
+                    "page",
+                    "axe"
                   ]
                 }
               ],
@@ -1590,7 +1602,8 @@
                   "probes": [
                     "screen_reader",
                     "keyboard",
-                    "forms"
+                    "forms",
+                    "axe"
                   ]
                 }
               ],
@@ -2019,7 +2032,8 @@
                   "probes": [
                     "page",
                     "instrumentation",
-                    "forms"
+                    "forms",
+                    "axe"
                   ]
                 }
               ],
@@ -2104,7 +2118,8 @@
                   ],
                   "probes": [
                     "forms",
-                    "screen_reader"
+                    "screen_reader",
+                    "axe"
                   ]
                 }
               ],

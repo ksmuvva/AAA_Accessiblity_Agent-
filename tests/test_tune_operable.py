@@ -115,7 +115,8 @@ def test_english_phrase_lists_do_not_pass_other_languages():
     audit = judge(html, "2.2.1", "2.4.4", "2.4.9")
     assert not any("vague" in d for d in descriptions(audit, "2.4.4", Status.PASS))
     assert any("English" in d for d in descriptions(audit, "2.4.4", Status.NEEDS_REVIEW))
-    assert set(found(audit, "2.4.9")) == {Status.NEEDS_REVIEW}
+    link_only = found(audit, "2.4.9")   # only axe's narrower identical-links check may pass
+    assert Status.NEEDS_REVIEW in link_only and all(f.source == "axe" for f in link_only.get(Status.PASS, []))
     assert "English" in (found(audit, "2.2.1")[Status.PASS][0].evidence or "")
 
 

@@ -81,3 +81,26 @@ def test_unchecked_page_state_points_to_run_checks():
     assert not by["2.4.2"]["measured"] and "2.4.2" in items["unmeasured"]  # unmeasured: measure it with run_checks
     assert "note" not in after and after["findings"]
     assert by_after["2.4.2"]["measured"] and "2.4.2" not in items_after["unmeasured"]
+
+
+def test_axe_results_reach_every_criterion_axe_maps():
+    from playwright.async_api import async_playwright
+
+    from audit_helpers import found, judge
+    from agent_access.models import Status
+    from agent_access.probes.axe import ALL_TAGS, axe_source, criteria_from_tags
+    from agent_access.rules import AXE_CRITERIA
+
+    async def axe_rules():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            page = await browser.new_page()
+            await page.add_script_tag(content=axe_source())
+            tags = await page.evaluate("(t) => axe.getRules(t).map(r => r.tags)", ALL_TAGS)
+            await browser.close()
+            return {c for t in tags for c in criteria_from_tags(t)}
+    assert asyncio.run(axe_rules()) == AXE_CRITERIA   # re-list AXE_CRITERIA after upgrading axe-core
+    # 2.2.2's rule reads only motion data; axe's marquee violation is still reported for it.
+    audit = judge('<!doctype html><html lang="en"><head><title>News</title></head><body><main><h1>News</h1>'
+                  '<marquee>Breaking news</marquee></main></body></html>', "2.2.2")
+    assert any(f.source == "axe" for f in found(audit, "2.2.2").get(Status.FAIL, []))

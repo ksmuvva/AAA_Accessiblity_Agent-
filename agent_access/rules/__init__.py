@@ -40,6 +40,11 @@ class WcagTool:
 
 
 REGISTRY: dict[str, WcagTool] = {}
+# Every criterion the vendored axe-core maps a rule to (test_criterion_tools checks it against axe.getRules()). Their
+# rules read axe, and engine.judge records axe's results for any of them whose own code didn't.
+AXE_CRITERIA = frozenset({"1.1.1", "1.2.1", "1.2.2", "1.3.1", "1.3.4", "1.3.5", "1.4.1", "1.4.2", "1.4.3", "1.4.4",
+                          "1.4.6", "1.4.12", "2.1.1", "2.1.3", "2.2.1", "2.2.2", "2.2.4", "2.4.1", "2.4.2", "2.4.4",
+                          "2.4.9", "2.5.3", "2.5.8", "3.1.1", "3.1.2", "3.2.5", "3.3.2", "4.1.2"})
 
 
 def wcag_tool(criterion: str, name: str, *, domain: str, tech: tuple[str, ...], uses: tuple[str, ...],
@@ -47,8 +52,9 @@ def wcag_tool(criterion: str, name: str, *, domain: str, tech: tuple[str, ...], 
     def register(impl):
         rule = load_catalogue().get(criterion)
         assert rule is not None, criterion
+        all_uses = (*uses, "axe") if criterion in AXE_CRITERIA and "axe" not in uses else uses
         assert set(uses) <= set(PROBES), (name, set(uses) - set(PROBES))
-        REGISTRY[criterion] = WcagTool(criterion, name, rule.title, rule.level, domain, tech, uses, judgement,
+        REGISTRY[criterion] = WcagTool(criterion, name, rule.title, rule.level, domain, tech, all_uses, judgement,
                                        (impl.__doc__ or "").strip(), impl)
         return impl
     return register

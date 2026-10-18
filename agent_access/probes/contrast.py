@@ -75,8 +75,10 @@ NON_TEXT_JS = js("contrast/non_text")
 
 @probe("contrast")
 async def contrast(audit) -> dict:
-    """{"text": [... ratio per text element], "non_text": [... control boundaries and icons]}"""
-    return {"text": await measure_text(audit), "non_text": await measure_non_text(audit)}
+    """{"text": [... ratio per text element], "unmeasured_text": [...], "non_text": [... control boundaries and icons]}"""
+    text, unmeasured = await measure_text(audit)
+    return {"text": text, "unmeasured_text": unmeasured, "non_text": await measure_non_text(audit),
+            "stopped_early": len(text) + len(unmeasured) >= MAX_TEXT_ELEMENTS}
 
 
 def _sample_backgrounds(png: bytes, fg: tuple[float, float, float]) -> list[tuple[int, int, int]]:
@@ -90,26 +92,29 @@ def _sample_backgrounds(png: bytes, fg: tuple[float, float, float]) -> list[tupl
     return [c for c, n in counts.most_common(8) if n / total >= 0.08 and not near_fg(c)][:3]
 
 
-async def measure_text(audit) -> list[dict]:
-    """Every visible text element with its contrast ratio. Background is computed, or sampled from pixels."""
+async def measure_text(audit) -> tuple[list[dict], list[dict]]:
+    """Every visible text element with its contrast ratio (background computed, or sampled from pixels), and the text
+    over an image or gradient that couldn't be measured. The text colour carries its ancestors' opacity."""
     page = await audit.page()
     items = await page.evaluate(TEXT_JS, MAX_TEXT_ELEMENTS)
-    results, sampled = [], 0
+    results, unmeasured, sampled = [], [], 0
     for it in items:
         fg = parse_color(it["color"])
         if fg is None:
             continue
+        fg = (*fg[:3], fg[3] * it["opacity"])
         bg_css, method = it["background"], "computed"
         if bg_css is None:
-            if sampled >= MAX_SAMPLED or it["rect"]["width"] < 2 or it["rect"]["height"] < 2:
-                continue
-            sampled += 1
-            try:
-                png = await page.screenshot(clip=it["rect"], type="png", full_page=True)
-            except Exception:
-                continue
-            candidates = _sample_backgrounds(png, fg[:3])
+            candidates, why = [], "over an image or gradient, past the sampling limit"
+            if sampled < MAX_SAMPLED and it["rect"]["width"] >= 2 and it["rect"]["height"] >= 2:
+                sampled += 1
+                try:
+                    png = await page.screenshot(clip=it["rect"], type="png", full_page=True)
+                    candidates, why = _sample_backgrounds(png, fg[:3]), "no background colour found in its pixels"
+                except Exception as exc:
+                    why = f"screenshot failed ({type(exc).__name__})"
             if not candidates:
+                unmeasured.append({"selector": it["selector"], "text": it["text"], "why": why})
                 continue
             ratios = [contrast_ratio(blend(fg, c), c) for c in candidates]
             ratio, method = min(ratios), "pixel-sampled"
@@ -120,7 +125,7 @@ async def measure_text(audit) -> list[dict]:
         large = is_large_text(it["font_px"], it["weight"])
         results.append({"selector": it["selector"], "text": it["text"], "foreground": it["color"], "background": bg_css,
                         "ratio": ratio, "large_text": large, "font_px": it["font_px"], "method": method})
-    return results
+    return results, unmeasured
 
 
 async def measure_non_text(audit) -> list[dict]:
