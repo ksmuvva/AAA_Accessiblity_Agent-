@@ -4,12 +4,24 @@ if (!root) return null;
 const controls = [...root.querySelectorAll('input, select, textarea')].filter((el) => el.type !== 'hidden');
 const form = root.tagName === 'FORM' ? root : null;
 // A screen reader announces changes to live regions it already knew and, of regions inserted with their text, only
-// role="alert"; hidden ones never. The first call (before a submission) marks the regions that are there.
+// role="alert"; hidden ones never. The first call (before a submission) marks the regions that are there, and
+// watches for regions inserted still empty (filled in a later task), which are known before their text arrives.
+const LIVE = '[role="alert"], [aria-live="assertive"], [aria-live="polite"], [role="status"]';
 const first = !document.__a11yLiveMarked;
 document.__a11yLiveMarked = true;
-const regions = [...document.querySelectorAll('[role="alert"], [aria-live="assertive"], [aria-live="polite"], [role="status"]')];
+if (first) {
+  new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach((n) => {
+    if (n.nodeType === 1) [n, ...n.querySelectorAll(LIVE)].filter((el) => el.matches(LIVE) && !el.textContent.trim())
+      .forEach((el) => { el.__a11yLive = true; });
+  }))).observe(document, { childList: true, subtree: true });
+}
+// display: contents gives a region no box of its own; its content shows wherever its parent's does.
+const shown = (el) => (getComputedStyle(el).display === 'contents'
+  ? getComputedStyle(el).visibility !== 'hidden' && (!el.parentElement || shown(el.parentElement))
+  : el.checkVisibility({ visibilityProperty: true }));
+const regions = [...document.querySelectorAll(LIVE)];
 const heard = regions.filter((el) => (first || el.__a11yLive || el.getAttribute('role') === 'alert')
-  && el.checkVisibility({ visibilityProperty: true }) && !el.closest('[aria-hidden="true"]'));
+  && shown(el) && !el.closest('[aria-hidden="true"]'));
 regions.forEach((el) => { el.__a11yLive = true; });
 return {
   native_invalid: form && form.noValidate ? [] : controls.filter((el) => el.willValidate && !el.checkValidity())

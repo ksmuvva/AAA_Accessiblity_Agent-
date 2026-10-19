@@ -83,6 +83,11 @@ def test_status_messages_need_a_live_region_already_on_the_page():
     assert Status.FAIL not in outcome('', insert("role", "alert"))
     assert Status.FAIL in outcome('', insert("aria-live", "polite"))
     assert Status.FAIL in outcome('<div role="alert" aria-hidden="true" id="msg"></div>', fill)
+    # Inserted empty and filled in a later task, it was known before its text arrived; display: contents has no box.
+    later = ('const m = document.createElement("p"); m.setAttribute("aria-live", "polite"); document.getElementById("f")'
+             '.append(m); setTimeout(() => { m.textContent = "Enter your email address."; }, 50);')
+    assert Status.FAIL not in outcome('', later)
+    assert Status.FAIL not in outcome('<div aria-live="polite" style="display: contents"><p id="msg"></p></div>', fill)
 
 
 def test_text_only_form_records_a_verdict_for_on_input():
