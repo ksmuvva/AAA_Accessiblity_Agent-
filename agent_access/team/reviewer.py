@@ -258,16 +258,23 @@ async def review_findings(
             continue
         for start in range(0, len(items), MAX_PER_REVIEW):
             batch = items[start:start + MAX_PER_REVIEW]
-            # Descriptions, evidence and details carry page text: the whole brief gets the tool-output scrub.
-            prompt = _scrubbed(f"Page: {page_key}\nResults to verify:\n"
-                               + json.dumps([_brief(audit, f) for f in batch], indent=1))
-            try:
-                result = await Runner.run(reviewer, prompt, context=audit, max_turns=10 + 3 * len(batch),
-                                          run_config=run_config(audit, "WCAG audit: reviewer"))
-            except (AgentsException, APIError) as exc:
-                errors.append(f"reviewer ({page_key}): {type(exc).__name__}: {exc}")
-                log += _not_reviewed(batch, f"The reviewer stopped early ({type(exc).__name__}).")
-                continue
-            log += apply_verdicts(batch, result.final_output)
-            check_verdict_ids(audit, batch, result.final_output)
+            for attempt in (1, 2):   # the second run asks only for the findings the reviewer left out of its answer
+                # Descriptions, evidence and details carry page text: the whole brief gets the tool-output scrub.
+                prompt = _scrubbed(f"Page: {page_key}\nResults to verify:\n"
+                                   + json.dumps([_brief(audit, f) for f in batch], indent=1))
+                try:
+                    result = await Runner.run(reviewer, prompt, context=audit, max_turns=10 + 3 * len(batch),
+                                              run_config=run_config(audit, "WCAG audit: reviewer"))
+                except (AgentsException, APIError) as exc:
+                    errors.append(f"reviewer ({page_key}): {type(exc).__name__}: {exc}")
+                    log += _not_reviewed(batch, f"The reviewer stopped early ({type(exc).__name__}).")
+                    break
+                entries = apply_verdicts(batch, result.final_output)
+                answered = {v.finding_id for v in result.final_output.verdicts}
+                if attempt == 2 or all(f.id in answered for f in batch):
+                    log += entries
+                    check_verdict_ids(audit, batch, result.final_output)
+                    break
+                log += [e for e, f in zip(entries, batch) if f.id in answered]
+                batch = [f for f in batch if f.id not in answered]
     return log, errors
