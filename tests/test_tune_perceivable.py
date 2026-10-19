@@ -134,6 +134,34 @@ def test_media_rules_record_track_and_control_details():
     assert details["check_audio_control"]["media"]
 
 
+def test_caption_cues_are_read():
+    """1.2.2 used to pass any video with a captions track. Its cues are now read from a one-minute video: an empty
+    track or one that can't be fetched fails, a track that stops halfway is a review naming the gap, a full one passes,
+    and a track an inline page can't resolve stays a review."""
+    import base64
+    from urllib.parse import quote
+
+    from audit_helpers import FIXTURES
+
+    video = "data:video/webm;base64," + base64.b64encode((FIXTURES / "minute.webm").read_bytes()).decode()
+
+    def captions(*srcs):
+        tracks = "".join(f'<track kind="captions" srclang="en" src="{src}">' for src in srcs)
+        audit = judge(f'<html lang="en"><title>Talk</title><main><h1>Talk</h1><video id="talk" controls src="{video}">'
+                      f'{tracks}</video></main></html>', "1.2.2")
+        return {s: [f.evidence or f.description for f in fs] for s, fs in found(audit, "1.2.2").items()}
+
+    def vtt(*spans):
+        stamp = lambda s: f"{s // 60:02d}:{s % 60:02d}.000"
+        return "data:text/vtt," + quote("WEBVTT\n\n" + "".join(f"{stamp(a)} --> {stamp(b)}\nWords\n\n" for a, b in spans))
+
+    assert set(captions(vtt((0, 20), (20, 40), (40, 60)))) == {Status.PASS}
+    assert Status.FAIL in captions(vtt()) and Status.FAIL in captions("http://127.0.0.1:9/talk.vtt")
+    assert captions(vtt((0, 30)))[Status.NEEDS_REVIEW] == ["#talk: 30-60s"]
+    assert set(captions(vtt((0, 10), (10, 20), (20, 30)), vtt((0, 60)))) == {Status.PASS}  # coverage, not cue count
+    assert Status.NEEDS_REVIEW in (unresolved := captions("talk.vtt")) and Status.FAIL not in unresolved
+
+
 # ---------------------------------------------------------------- 1.4.5 / 1.4.8 / 1.4.11
 
 def test_images_of_text_names_the_suspects(alternatives):

@@ -116,8 +116,31 @@ def check_prerecorded_captions(ctx: Ctx) -> None:
     if no_captions:
         ctx.review(f"{len(no_captions)} video(s) have no caption track; check for open (burned-in) captions or a transcript.",
                    [v["selector"] for v in no_captions])
-    elif videos:
-        ctx.passed("Every video has a captions or subtitles track.")
+    # The probe reads each caption track's cues: an empty track, or one the browser couldn't fetch, shows no captions.
+    silent, unread, gappy = [], [], []
+    for v in videos:
+        if not (caps := [t for t in v["tracks"] if "state" in t]):
+            continue
+        best = min(caps, key=lambda t: (not t["cues"], len(t["gaps"]), -t["cues"]))  # cues, then fewest gaps
+        if best["cues"]:
+            gappy += [(v, best)] if best["gaps"] else []
+        elif all(t["state"] == "loaded" or t["state"] == "error" and t["src"].startswith(("http:", "https:")) for t in caps):
+            silent.append((v, caps))
+        else:
+            unread.append(v)
+    if silent:
+        ctx.fail(f"{len(silent)} video(s) have caption tracks that show no captions: each track is empty or failed to load.",
+                 [v["selector"] for v, _ in silent],
+                 "; ".join(f"{t['src'][:60]}: {t['state']}, {t['cues']} cues" for _, caps in silent for t in caps[:2]))
+    if unread:
+        ctx.review(f"{len(unread)} video(s) have caption tracks that couldn't be read here; check the captions play.",
+                   [v["selector"] for v in unread])
+    if gappy:
+        ctx.review(f"{len(gappy)} video(s) have stretches of 30 s or more with no caption; check nothing is said there.",
+                   [v["selector"] for v, _ in gappy],
+                   "; ".join(f"{v['selector']}: " + ", ".join(f"{a}-{b}s" for a, b in t["gaps"]) for v, t in gappy))
+    if videos and not (no_captions or silent or unread or gappy):
+        ctx.passed("Every video has a captions or subtitles track with cues.")
     _player_review(ctx, m)
 
 
