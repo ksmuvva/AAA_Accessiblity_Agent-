@@ -170,7 +170,7 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 - NVDA reads the **foreground window**. The probe sets a unique temporary `document.title`, activates that window through the bridge, then restores the title.
 - Reading order: `Control+Home`, then `next` until the real last line (`Control+End`). Headings: `nextHeading`.
 - Focus: Playwright focuses each Tab stop, then the bridge runs `reportCurrentFocus`. Pressing Tab through NVDA lets focus escape into the browser toolbar.
-- Live-region speech can't be captured, so 4.1.3 uses DOM observation: error text that appears while focus stays on the submit control, with no live region, fails.
+- Live-region speech can't be captured, so 4.1.3 uses DOM observation: error text that appears while focus stays on the submit control, with no live region, fails. Only a visible region (not under `aria-hidden`) that was on the page before the submission counts, or a `role="alert"` even when inserted, as with real screen readers (`forms/error_state.js`).
 - Startup takes 40–150 s and is flaky. The bridge retries `start` 3 times, and the orchestrator starts NVDA before loading pages.
 - Windows focus-stealing protection can block activation from a background or IDE terminal, so NVDA speaks nothing. The probe checks that `Control+Home` produced speech, retries once, then falls back to emulation. **Never treat empty NVDA output as "no name/role".**
 - Any NVDA error falls back to emulation, and the reason is recorded in `audit.engines["screen reader"]`.
