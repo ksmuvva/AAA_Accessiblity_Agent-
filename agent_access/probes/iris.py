@@ -76,7 +76,10 @@ async def iris_flashes(page, viewport: dict, flash_area_px: int) -> dict | None:
     """IRIS's results for the page, or None when it isn't installed (or {"error"} when it couldn't run)."""
     if (command := iris_command()) is None:
         return None
-    frames = await _record(page, IRIS_SECONDS)
+    try:
+        frames = await _record(page, IRIS_SECONDS)
+    except Exception as exc:   # the page went away mid-recording: the sampler's measurement still stands
+        return {"error": f"the screencast failed: {type(exc).__name__}"}
     if not frames:
         return {"error": "the screencast sent no frames"}
     with tempfile.TemporaryDirectory() as tmp:

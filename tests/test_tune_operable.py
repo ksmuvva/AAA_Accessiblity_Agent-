@@ -83,6 +83,24 @@ def test_iris_only_adds_fails_to_the_sampler():
         assert Status.FAIL not in {f.status for f in broken}, criterion
 
 
+def test_an_iris_that_fails_to_record_leaves_the_samplers_measurement(monkeypatch):
+    """Codex review on #40: a screencast error escaped the flashing probe and discarded the sampler's frames."""
+    from agent_access.probes import iris
+
+    async def broken(page, seconds):
+        raise RuntimeError("Target page, context or browser has been closed")
+    monkeypatch.setattr(iris, "iris_command", lambda: ["IrisApp"])
+    monkeypatch.setattr(iris, "_record", broken)
+
+    async def scenario():
+        async with AuditContext(screen_reader="emulated") as audit:
+            await load_html_content(audit, "<html lang='en'><body><main><h1>Fares</h1></main></body></html>", "p")
+            return await collect(audit, "flashing")
+    result = asyncio.run(scenario())
+    assert result.error is None and result.data["frames"] > 0
+    assert result.data["iris"] == {"error": "the screencast failed: RuntimeError"}
+
+
 @pytest.mark.skipif(not iris_command(), reason="EA IRIS (IrisApp) and ffmpeg aren't installed")
 def test_the_real_iris_fails_a_flashing_page():
     audit = judge("o_flash_page.html", "2.3.1", "2.3.2")
