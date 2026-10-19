@@ -41,6 +41,7 @@ async def _record(page, seconds: float) -> list[tuple[float, bytes]]:
     cdp.on("Page.screencastFrame", on_frame)
     await cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 90, "everyNthFrame": 1})
     await asyncio.sleep(seconds)
+    cdp.remove_listener("Page.screencastFrame", on_frame)   # no new acks once stopping
     await cdp.send("Page.stopScreencast")
     await asyncio.gather(*acks, return_exceptions=True)   # before the session goes, or they fail unread
     await cdp.detach()
