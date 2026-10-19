@@ -22,7 +22,24 @@ from agent_access.team.orchestrator import AuditOutcome
 
 PAGE = ('<html lang="en"><head><title>Fares</title></head><body><main><h1>Fares</h1>'
         '<a href="fares.pdf">Fares (PDF)</a> <a href="gone.pdf">Old fares (PDF)</a> <a href="fares.pdf#page=2">Page 2</a>'
-        '<a href="https://elsewhere.example/x.pdf">Partner fares</a> <a href="about.html">About</a></main></body></html>')
+        '<a href="https://elsewhere.example/x.pdf">Partner fares</a> <a href="about.html">About</a>'
+        '<a href="old.pdf">2025 fares</a> <a href="partner.pdf">Partner timetable</a> <a href="big.pdf">Atlas</a>'
+        '</main></body></html>')
+# old.pdf moves to fares.pdf on this site; partner.pdf moves to another site, which the audit doesn't open.
+REDIRECTS = {"/old.pdf": "/fares.pdf", "/partner.pdf": "https://elsewhere.example/timetable.pdf"}
+
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in REDIRECTS:
+            self.send_response(302)
+            self.send_header("Location", REDIRECTS[self.path])
+            self.end_headers()
+        else:
+            super().do_GET()
+
+    def log_message(self, *args):
+        pass
 # What veraPDF prints for one file with a figure that has no alternative text (PDF/UA-1 7.3-1).
 STAND_IN = r'''
 import json, sys
@@ -37,8 +54,7 @@ print(json.dumps({"report": {"buildInformation": {"releaseDetails": [{"id": "app
 
 
 def serve(directory):
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
-    handler.log_message = lambda *a: None
+    handler = functools.partial(Handler, directory=str(directory))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, f"http://127.0.0.1:{server.server_address[1]}"
@@ -47,6 +63,7 @@ def serve(directory):
 def audit_pdfs(tmp_path, pdf: bytes):
     (tmp_path / "index.html").write_text(PAGE)
     (tmp_path / "fares.pdf").write_bytes(pdf)
+    (tmp_path / "big.pdf").write_bytes(b"%PDF" + b"0" * documents.MAX_BYTES)
     server, base = serve(tmp_path)
 
     async def scenario():
@@ -67,11 +84,15 @@ def test_linked_pdfs_are_validated_and_mapped_to_criteria(tmp_path, monkeypatch)
     stand_in.write_text(STAND_IN)
     monkeypatch.setattr(documents, "verapdf_command", lambda: [sys.executable, str(stand_in)])
     base, found, warnings, engines, report = audit_pdfs(tmp_path, b"%PDF-1.7 a stand-in document")
-    assert [d["url"] for d in found] == [f"{base}/fares.pdf", f"{base}/gone.pdf"]   # same site, once each, in link order
-    fares, gone = found
+    # Same site, once each, in link order.
+    assert [d["url"] for d in found] == [f"{base}/{n}.pdf" for n in ("fares", "gone", "old", "partner", "big")]
+    fares, gone, old, partner, big = found
     assert fares["checked"] and not fares["compliant"] and fares["failed_rules"][0]["criteria"] == ["1.1.1", "1.3.1"]
+    assert old["checked"]   # a redirect on the same site is followed
     assert not gone["checked"] and gone["reason"] == "HTTP 404"
-    assert warnings == [f"1 linked PDF(s) were not checked: {base}/gone.pdf (HTTP 404)."]
+    assert not partner["checked"] and partner["reason"].startswith("it redirects to https://elsewhere.example/timetable.pdf")
+    assert not big["checked"] and big["reason"] == "over 20 MB"   # by its Content-Length, unread
+    assert warnings[0].startswith("3 linked PDF(s) were not checked: ")
     assert engines["veraPDF"] == "veraPDF 9.9 (PDF/UA-1, linked PDFs)"
     assert "## Linked documents" in report and "  - 7.3-1 (WCAG 1.1.1, 1.3.1): Figure tags" in report
     assert f"- {base}/gone.pdf: not checked (HTTP 404)" in report
@@ -80,8 +101,8 @@ def test_linked_pdfs_are_validated_and_mapped_to_criteria(tmp_path, monkeypatch)
 def test_without_verapdf_the_linked_pdfs_are_a_warning_not_a_silence(tmp_path, monkeypatch):
     monkeypatch.setattr(documents, "verapdf_command", lambda: None)
     _, found, warnings, _, _ = audit_pdfs(tmp_path, b"%PDF-1.7")
-    assert [d["checked"] for d in found] == [False, False]
-    assert warnings == ["2 linked PDF(s) were not checked: veraPDF isn't installed (it needs Java; put verapdf on PATH)."]
+    assert [d["checked"] for d in found] == [False] * 5
+    assert warnings == ["5 linked PDF(s) were not checked: veraPDF isn't installed (it needs Java; put verapdf on PATH)."]
 
 
 @pytest.mark.skipif(shutil.which("verapdf") is None, reason="veraPDF isn't installed")
