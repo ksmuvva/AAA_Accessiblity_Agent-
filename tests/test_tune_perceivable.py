@@ -287,3 +287,15 @@ def test_modern_colour_formats_are_measured():
     low = {f.description for f in found(audit, "1.4.3").get(Status.FAIL, []) if f.source != "axe"}
     assert low == {"2 text element(s) are below the AA contrast ratio."}
     assert found(audit, "1.4.11").get(Status.FAIL)   # the light oklch border, 1.57:1
+
+
+def test_an_instruction_that_points_at_a_control_only_by_its_shape_fails():
+    """booking_1 (eval v2): 'Press the round button below to continue.' An auditor passed it as an extra cue and the
+    reviewer agreed. Naming the control's label passes; position alone can follow the reading order, so it's asked."""
+    page = '<html lang="en"><body><main><p>{}</p><button>Continue</button><a href="#h">Help</a></main></body></html>'
+    by_shape = found(judge(page.format("Press the round button below to continue."), "1.3.3"), "1.3.3")
+    named = found(judge(page.format("Press the round Continue button below."), "1.3.3"), "1.3.3")
+    by_place = found(judge(page.format("Choose one of the links below."), "1.3.3"), "1.3.3")
+    assert by_shape[Status.FAIL][0].evidence == "Press the round button below to continue"
+    assert Status.FAIL not in named and Status.NEEDS_REVIEW in named
+    assert Status.FAIL not in by_place and Status.NEEDS_REVIEW in by_place

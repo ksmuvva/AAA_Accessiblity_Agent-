@@ -20,6 +20,11 @@ SENSORY = re.compile(
     r"\b(click|press|tap|select|use|see|choose)\b[^.]{0,40}\b(round|square|circular|red|green|blue|yellow|orange|"
     r"left|right|above|below|top|bottom|corner|side)\b|\b(on the (left|right)|shown (above|below)|the (red|green) "
     r"(button|link|text|field)s?)\b", re.I)
+# An instruction that points at a control by its shape or colour ("press the round button below"). Naming it as well
+# ("the round Continue button", "select Continue") is what 1.3.3 asks; position alone can conform when it follows the
+# reading order ("the links below"), so it stays a question.
+BY_LOOK = re.compile(r"\b(?:click|press|tap|select|choose)\b[^.!?]{0,40}?\b(?:round|square|circular|red|green|blue|"
+                     r"yellow|orange)\b[^.!?]{0,20}?\b(?:button|link|icon|arrow)s?\b[^.!?]{0,60}", re.I)
 # Text whose CSS size falls below this fraction when the viewport halves didn't scale with zoom (e.g. vw units).
 MIN_SCALE_RATIO = 0.6
 
@@ -285,8 +290,16 @@ def check_meaningful_sequence(ctx: Ctx) -> None:
 @wcag_tool("1.3.3", "check_sensory_characteristics", domain="lead", tech=(PW,), uses=("page",), judgement=True)
 def check_sensory_characteristics(ctx: Ctx) -> None:
     """Check instructions don't rely only on shape, colour, size, location, or sound."""
-    matches = sorted({m.group(0) for m in SENSORY.finditer(ctx.data("page").get("body_text", ""))})
-    if matches:
+    page = ctx.data("page")
+    text = page.get("body_text", "")
+    names = [n for n in [link["text"] for link in page.get("links", [])] + page.get("button_names", []) if n]
+    by_look = sorted({m.group(0).strip() for m in BY_LOOK.finditer(text)   # its control's label, as written, is missing
+                      if not any(re.search(rf"(?<!\w){re.escape(n)}(?!\w)", m.group(0)) for n in names)})
+    matches = sorted({m.group(0) for m in SENSORY.finditer(text)})
+    if by_look:
+        ctx.fail(f"{len(by_look)} instruction(s) point at a control only by its shape or colour, not by its label.",
+                 evidence="; ".join(by_look[:5]))
+    elif matches:
         ctx.review(f"{len(matches)} instruction(s) refer to shape, colour, or position.", evidence="; ".join(matches[:8]))
     else:
         ctx.passed("No instructions referring only to shape, colour, size, or position were found.")
