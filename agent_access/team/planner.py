@@ -45,6 +45,7 @@ from agent_access.memory import MEMORY_TOOLS, remember_run
 from agent_access.sampling import wcag_em_sample
 from agent_access.team.guardrails import apply_guardrails, scrub
 from agent_access.team.runtime import run_config, settings
+from agent_access.team.sr_user import run_sr_user
 
 AGENT_ERRORS = (AgentsException, APIError)
 PLANNER_MAX_TURNS = 60
@@ -241,6 +242,8 @@ async def run_lead_on(audit: AuditContext, state: PlanState, page_key: str, focu
             prompt += f"\nFocus from the planner: {focus}"
         notes += await _lead_run(audit, state, page_key, prompt, max_turns)
         runs += 1
+    if not is_state_key(page_key):   # once per page, when --sr-agent is on (team/sr_user.py)
+        state.lead_notes += await run_sr_user(audit, page_key, state.model, state.errors)
     items = await measurement_floor(audit, state, page_key, max_turns)
     if not items["done"]:
         state.exhausted.add(page_key)

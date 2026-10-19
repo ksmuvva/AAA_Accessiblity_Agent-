@@ -111,6 +111,8 @@ class AuditContext:
     measurement: str = "eager"
     # How the lead reaches specialists: SDK "handoffs", or the delegate "tools" (code mode, --delegation tools; G2).
     delegation: Delegation = "handoffs"
+    # The screen reader user agent (team/sr_user.py, --sr-agent): None is off; a set is on, holding the pages it used.
+    sr_agent: set[str] | None = None
     catalogue: Catalogue = field(default_factory=load_catalogue)
     findings: list[Finding] = field(default_factory=list)
     current_url: str | None = None

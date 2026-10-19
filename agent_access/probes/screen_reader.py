@@ -212,22 +212,26 @@ def _speak(m: re.Match, text: str | None, focused: bool = False) -> str:
     return ", ".join(p for p in parts + states if p) + (f", {text.strip()}" if text and text.strip() else "")
 
 
-async def _emulated_observe(audit, focus_selectors: list[str]) -> dict:
-    page = await audit.page()
-    snapshot = await page.locator("body").aria_snapshot()
-    reading, headings = [], []
+def reading_items(snapshot: str) -> list[tuple[str, str, str]]:
+    """(role, name, spoken) for each line the emulated reading order speaks, from an aria snapshot of the body."""
+    items = []
     for raw in snapshot.splitlines():
         m = _match_snapshot_line(raw)
         if not m or m.group("role") in ("generic", "group", "list", "listitem", "paragraph", "main", "navigation",
                                          "banner", "contentinfo", "region", "form", "row", "rowgroup", "table", "cell"):
             if m and m.group("role") in ("paragraph", "listitem", "cell") and m.group("text"):
-                reading.append(m.group("text").strip())
+                items.append(("text", "", m.group("text").strip()))
             continue
-        spoken = _speak(m, m.group("text"))
-        if spoken:
-            reading.append(spoken)
-            if m.group("role") == "heading":
-                headings.append(spoken)
+        if spoken := _speak(m, m.group("text")):
+            items.append((m.group("role"), (m["name"] or "").replace('\\"', '"'), spoken))
+    return items
+
+
+async def _emulated_observe(audit, focus_selectors: list[str]) -> dict:
+    page = await audit.page()
+    items = reading_items(await page.locator("body").aria_snapshot())
+    reading = [spoken for _, _, spoken in items]
+    headings = [spoken for role, _, spoken in items if role == "heading"]
     focus = []
     for sel in focus_selectors[:MAX_FOCUS]:
         try:

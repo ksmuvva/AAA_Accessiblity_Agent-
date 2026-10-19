@@ -53,6 +53,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "/sitemap.xml, plus a random 10%%, up to --max-pages; the report states the sample")
     parser.add_argument("--seed", type=int, help="seed of --sample's random pages (default: a new one, in the report)")
     parser.add_argument("--process", help="describe a multi-step process to walk through")
+    parser.add_argument("--sr-agent", action="store_true",
+                        help="also run the screen reader user on every page: an agent that hears only the screen reader "
+                             "and uses only keys, and records where a blind user gets stuck (more model calls per page)")
     parser.add_argument("--no-interaction", action="store_true",
                         help="forbid the agents' own clicking, typing and key presses; by default they explore the site "
                              "(requests that change data stay blocked unless --allow-submit). The automated checks "
@@ -229,6 +232,7 @@ def configure_agentic(audit: AuditContext, args: argparse.Namespace, progress) -
     audit.delegation = args.delegation if args.mode == "agent" else "tools"
     audit.measurement = args.measurement
     audit.allow_offsite = args.allow_offsite
+    audit.sr_agent = set() if args.sr_agent else None
     if args.mode == "agent":
         audit.budget = Budget(max_model_calls=args.budget_calls, max_minutes=args.budget_minutes, max_pages=args.max_pages)
     if (args.memory or "").lower() != "off":
