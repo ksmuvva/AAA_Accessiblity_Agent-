@@ -136,6 +136,39 @@ def test_a_failing_review_batch_does_not_stop_the_rest():
     assert compile_report(audit).counts["fail"] == 1             # ...and the confirmed ones carry the report
 
 
+def test_findings_the_reviewer_leaves_out_are_asked_for_once_more():
+    """E2's settings_2 2.4.6: the reviewer answered every finding of a batch but one, so a correct pass was never
+    reviewed. Left-out findings get one more run of their own; only what that run also leaves out stays not_reviewed."""
+    def first_only(input):
+        return {"verdicts": confirm_all(input)["verdicts"][:1]}
+
+    def scenario(steps):
+        model = RouterModel({"reviewer": steps})
+
+        async def run():
+            async with AuditContext(screen_reader="emulated") as audit:
+                loaded = await load_html_content(audit, "<html lang='en'><title>t</title><body><img src='a.png'></body></html>")
+                audit.add_findings([finding(Status.FAIL, "agent", page=loaded["page_label"]) for _ in range(3)])
+                log, errors = await review_findings(audit, model)
+                return audit, log, errors
+
+        audit, log, errors = asyncio.run(run())
+        retried = json.loads(first_user_text(model.inputs["reviewer"][1]).split("Results to verify:\n", 1)[1])
+        return audit, log, errors, len(retried), [t["kind"] for t in audit.tripwires]
+
+    audit, log, errors, retried, tripwires = scenario([first_only, confirm_all])
+    assert not errors and retried == 2 and [r["verdict"] for r in log] == ["confirmed"] * 3 and tripwires == []
+    audit, log, errors, retried, tripwires = scenario([first_only, first_only])
+    assert sorted(r["verdict"] for r in log) == ["confirmed", "confirmed", "not_reviewed"] and tripwires == ["review_incomplete"]
+    # An id it made up in the first answer is still reported, though the retry fills the gap it left.
+    def first_and_unknown(input):
+        verdicts = confirm_all(input)["verdicts"]
+        return {"verdicts": verdicts[:1] + [{**verdicts[0], "finding_id": "made-up"}]}
+    audit, log, errors, retried, tripwires = scenario([first_and_unknown, confirm_all])
+    assert [r["verdict"] for r in log] == ["confirmed"] * 3 and tripwires == ["review_incomplete"]
+    assert "made-up" in audit.tripwires[0]["detail"] and "missing verdicts: []" in audit.tripwires[0]["detail"]
+
+
 SITE = {
     "index.html": '<a href="/a.html">About</a> <a href="/b.html">Contact</a> <a href="/c.html">Blog</a>',
     "a.html": "About us.", "b.html": "Contact us.", "c.html": "Our blog.",
