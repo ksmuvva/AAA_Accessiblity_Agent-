@@ -303,4 +303,6 @@ def test_an_instruction_that_points_at_a_control_only_by_its_shape_fails():
     shouting = found(judge(page.format("Press the round CONTINUE button below."), "1.3.3"), "1.3.3")
     icon = found(judge(page.format("Press the round Continue button.").replace(
         "<button>Continue</button>", '<button aria-label="Continue"><svg width="9" height="9"></svg></button>'), "1.3.3"), "1.3.3")
-    assert Status.FAIL not in shouting and Status.FAIL not in icon
+    expanded = found(judge(page.format("Press the round Continue button.").replace(
+        "<button>Continue</button>", '<button aria-label="Continue to payment">Continue</button>'), "1.3.3"), "1.3.3")
+    assert Status.FAIL not in shouting and Status.FAIL not in icon and Status.FAIL not in expanded
