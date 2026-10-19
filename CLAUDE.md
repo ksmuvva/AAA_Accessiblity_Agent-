@@ -90,6 +90,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - `tests/test_tune_{perceivable,operable,understandable}.py` with fixtures `tests/fixtures/{p,o,u}_*.html` give each rule a page it fails on; `test_benchmark_regressions.py` covers the W3C BAD demo patterns.
 - After changing a rule's `@wcag_tool` name, `tech`, `uses` or `judgement`, run `python -m agent_access.catalogue.sync`. A test checks it with `--check`.
 - Evals use a real model and cost money: `python -m evals.run_eval [--model M] [--cases NAME ...] [--mode code|agent] [--measurement eager|lazy] [--no-interaction] [--fail-on-false-pass]` (defaults code + eager; the CLI's are agent + lazy; interaction is allowed in both, like the CLI). They compare against `evals/cases.json` and report recall, precision, the share of criteria decided, and false passes; each results file records the git commit, settings and model calls. `python -m evals.compare A.json B.json` diffs two runs (e.g. main against a branch, same flags). `--max-calls N` (default 1000) caps a run's model calls; exit 5 when it stopped the run.
+  - Free, no model: `python -m evals.act_eval ../act-rules [--rules ID ...]` on a clone of `github.com/act-rules/act-rules.github.io` scores the rules on the W3C ACT examples (recall on failed examples, false passes, false fails).
 
 ## Architecture
 
