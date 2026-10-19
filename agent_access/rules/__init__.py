@@ -22,7 +22,7 @@ from agent_access.probes import PROBES, ProbeResult
 MAX_DETAIL_ITEMS = 12
 MAX_SELECTORS = 15
 
-AXE, PW, CCA, SR = "axe-core", "Playwright", "Colour Contrast Analyser method", "NVDA"
+AXE, PW, CCA, SR, ALFA = "axe-core", "Playwright", "Colour Contrast Analyser method", "NVDA", "Siteimprove Alfa"
 
 
 @dataclass
@@ -45,6 +45,12 @@ REGISTRY: dict[str, WcagTool] = {}
 AXE_CRITERIA = frozenset({"1.1.1", "1.2.1", "1.2.2", "1.3.1", "1.3.4", "1.3.5", "1.4.1", "1.4.2", "1.4.3", "1.4.4",
                           "1.4.6", "1.4.12", "2.1.1", "2.1.3", "2.2.1", "2.2.2", "2.2.4", "2.4.1", "2.4.2", "2.4.4",
                           "2.4.9", "2.5.3", "2.5.8", "3.1.1", "3.1.2", "3.2.5", "3.3.2", "4.1.2"})
+# Every criterion the vendored Alfa maps a rule to (test_criterion_tools checks it against window.__alfa.rules()).
+# Their rules get its failures as questions (Ctx.alfa), never as fails.
+ALFA_CRITERIA = frozenset({"1.1.1", "1.2.1", "1.2.2", "1.2.3", "1.2.5", "1.2.8", "1.3.1", "1.3.4", "1.3.5", "1.4.1",
+                           "1.4.2", "1.4.3", "1.4.4", "1.4.6", "1.4.8", "1.4.12", "2.1.1", "2.1.3", "2.2.1", "2.2.4",
+                           "2.4.2", "2.4.4", "2.4.7", "2.4.9", "2.5.3", "2.5.5", "2.5.8", "3.1.1", "3.1.2", "3.2.5",
+                           "4.1.2"})
 
 
 def wcag_tool(criterion: str, name: str, *, domain: str, tech: tuple[str, ...], uses: tuple[str, ...],
@@ -53,8 +59,11 @@ def wcag_tool(criterion: str, name: str, *, domain: str, tech: tuple[str, ...], 
         rule = load_catalogue().get(criterion)
         assert rule is not None, criterion
         all_uses = (*uses, "axe") if criterion in AXE_CRITERIA and "axe" not in uses else uses
+        all_tech = tech
+        if criterion in ALFA_CRITERIA:
+            all_uses, all_tech = (*all_uses, "alfa"), (*tech, ALFA)
         assert set(uses) <= set(PROBES), (name, set(uses) - set(PROBES))
-        REGISTRY[criterion] = WcagTool(criterion, name, rule.title, rule.level, domain, tech, all_uses, judgement,
+        REGISTRY[criterion] = WcagTool(criterion, name, rule.title, rule.level, domain, all_tech, all_uses, judgement,
                                        (impl.__doc__ or "").strip(), impl)
         return impl
     return register
@@ -68,7 +77,8 @@ class Ctx:
         self.page_key = audit.current_url
         self.findings: list[Finding] = []
         self.details: dict = {}
-        self.probe_errors = [f"{n}: {p.error}" for n, p in probes.items() if p.error]
+        # A second opinion that failed leaves the rule's own result as complete as it was.
+        self.probe_errors = [f"{n}: {p.error}" for n, p in probes.items() if p.error and n != "alfa"]
 
     def data(self, probe: str) -> dict:
         if probe not in self._probes:
@@ -102,6 +112,14 @@ class Ctx:
             if self.tool.criterion in r["criteria"]:
                 self.add(Status(r["outcome"]), f"{r['help']} ({r['elements']} element(s)) [axe: {r['id']}]",
                          r["selectors"], r["evidence"], source="axe")
+
+    def alfa(self) -> None:
+        """Siteimprove Alfa's failures for this criterion, as questions with its rule's page as evidence: a second
+        engine whose precision on these pages isn't established, so it never fails a criterion on its own."""
+        for r in self._probes["alfa"].data.get("rules", []):
+            if self.tool.criterion in r["criteria"]:
+                self.add(Status.NEEDS_REVIEW, f"{r['message']} ({r['elements']} element(s)) [alfa: {r['id']}]",
+                         r["selectors"], f"Alfa rule: https://alfa.siteimprove.com/rules/{r['id']}", source="alfa")
 
     def detail(self, key: str, value) -> None:
         self.details[key] = value[:MAX_DETAIL_ITEMS] if isinstance(value, list) else value
