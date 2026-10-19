@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import contextlib
 import os
+import random
 import re
 import signal
 import sys
@@ -46,6 +47,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="auto: real NVDA when installed (opens a visible browser; NVDA speaks aloud); "
                              "nvda: require NVDA; emulated: Chromium accessibility tree only")
     parser.add_argument("--pages", type=int, default=1, help="audit up to this many same-site pages (default 1)")
+    parser.add_argument("--sample", choices=["wcag-em"],
+                        help="choose the pages as WCAG-EM does: one per URL template among the start page's links and "
+                             "/sitemap.xml, plus a random 10%%, up to --max-pages; the report states the sample")
+    parser.add_argument("--seed", type=int, help="seed of --sample's random pages (default: a new one, in the report)")
     parser.add_argument("--process", help="describe a multi-step process to walk through")
     parser.add_argument("--no-interaction", action="store_true",
                         help="forbid the agents' own clicking, typing and key presses; by default they explore the site "
@@ -107,6 +112,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--pages only works with a URL")
     if args.pages < 1:
         parser.error("--pages must be at least 1")
+    if args.html_file and args.sample:
+        parser.error("--sample only works with a URL")
+    if args.seed is not None and not args.sample:
+        parser.error("--seed only works with --sample")
+    if args.sample and args.seed is None:
+        args.seed = random.randrange(1_000_000)
     if args.screen_reader == "nvda" and not nvda_available():
         parser.error("NVDA isn't set up. Run: cd nvda_bridge && npm install && "
                      "node node_modules/@guidepup/setup/lib/index.js install nvda")
@@ -156,10 +167,12 @@ async def run(args: argparse.Namespace) -> int:
         with contextlib.suppress(NotImplementedError, RuntimeError):  # Windows has no loop signal handlers
             asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)  # a runner's timeout
         try:
-            outcome = await run_audit(audit, start_url=None if preloaded else args.url, pages=args.pages,
+            # A sample's size is capped by --max-pages; in agent mode that is the budget's page cap.
+            pages = args.max_pages if args.sample and args.mode == "code" else args.pages
+            outcome = await run_audit(audit, start_url=None if preloaded else args.url, pages=pages,
                                       process=args.process, model=args.model, reviewer_model=args.reviewer_model,
                                       max_turns=args.max_turns, review=not args.skip_review, progress=progress,
-                                      mode=args.mode)
+                                      mode=args.mode, sample_seed=args.seed if args.sample else None)
         except (Exception, asyncio.CancelledError) as exc:  # Ctrl+C, a timeout, a crash: keep what was found
             stopped = f"{type(exc).__name__}: {exc}"
             outcome = AuditOutcome(report=compile_site_report(audit), tool_runs=audit.tool_runs, engines=audit.engines,

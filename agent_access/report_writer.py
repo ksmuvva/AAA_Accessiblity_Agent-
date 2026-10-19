@@ -144,6 +144,12 @@ def render_markdown(outcome: AuditOutcome) -> str:
 
     if outcome.engines:
         lines += ["## Technologies used", ""] + [f"- **{k}:** {_md_escape(v)}" for k, v in outcome.engines.items()] + [""]
+    if sample := getattr(outcome, "sample", None):
+        lines += ["## Sample", "", f"{sample['method']}. Seed {sample['seed']}, at most {sample['cap']} pages; "
+                  f"{sample['candidates']} candidate pages ({sample['from_sitemap']} listed in /sitemap.xml) in "
+                  f"{len(sample['templates'])} URL templates.", ""]
+        lines += [f"- Structured: {_md_escape(u)}" for u in sample["structured"]]
+        lines += [f"- Random: {_md_escape(u)}" for u in sample["random"]] + [""]
 
     plan_log, budget = getattr(outcome, "plan_log", []), getattr(outcome, "budget_used", None)
     tripwires = getattr(outcome, "tripwires", [])
@@ -228,6 +234,7 @@ def write_reports(out_dir: Path, outcome: AuditOutcome) -> tuple[Path, Path]:
         "budget_used": getattr(outcome, "budget_used", None),
         "tripwires": getattr(outcome, "tripwires", []),
         "memory": getattr(outcome, "memory", None),
+        "sample": getattr(outcome, "sample", None),
         "report": outcome.report.model_dump(mode="json"),
     }
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

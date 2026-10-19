@@ -42,6 +42,7 @@ from agent_access.catalogue.catalogue import LEVEL_ORDER
 from agent_access.context import AuditContext, is_state_key, run_parallel
 from agent_access.engine import run_site_tests, sweep_summary
 from agent_access.memory import MEMORY_TOOLS, remember_run
+from agent_access.sampling import wcag_em_sample
 from agent_access.team.guardrails import apply_guardrails, scrub
 from agent_access.team.runtime import run_config, settings
 
@@ -651,11 +652,12 @@ def build_planner(model: str | Model | None, state: PlanState) -> Agent[AuditCon
 
 async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str | None = None, model: str | Model | None = None,
                             reviewer_model: str | Model | None = None, review: bool = True, progress=print,
-                            lead_max_turns: int | None = None):
+                            lead_max_turns: int | None = None, sample_seed: int | None = None):
     """Plan and run one audit with the planner agent, then apply the code floors. Returns an AuditOutcome.
 
     The caller (orchestrator.run_audit) has resolved the models, started NVDA if wanted, and opened and measured the
-    start page, exactly as in code mode; this function starts where the per-page loop used to.
+    start page, exactly as in code mode; this function starts where the per-page loop used to. With `sample_seed`,
+    a WCAG-EM sample up to the page cap is opened first: the planner owes each page, as if it had opened it.
     """
     from agent_access.team.orchestrator import AuditOutcome, coverage_warnings, unreviewed_warning
 
@@ -669,15 +671,29 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
                       min_pages=max(1, pages), max_pages=max(max(1, pages), budget.max_pages),
                       opened={audit.current_url}, flows=[process] if process else [],
                       lead_max_turns=lead_max_turns or LEAD_MAX_TURNS)
+    if sample_seed is not None and not audit.current_url.startswith(("about:", "file:")):
+        from agent_access.team.orchestrator import _back_to
+        start = audit.current_url
+        outcome.sample = await wcag_em_sample(audit, state.max_pages, sample_seed)
+        for url in outcome.sample["pages"][1:]:
+            progress(f"Opening sampled page {url} ...")
+            if "error" in (result := await open_and_measure(audit, url)):
+                outcome.errors.append(f"loading {url}: {result['error']}")
+            else:
+                state.opened.add(result["page"])
+        state.min_pages = max(state.min_pages, len(state.opened))
+        await _back_to(audit, start)   # the planner starts on the start page, as without a sample
 
-    need = 18 + 67 * state.min_pages + 147 * len(state.flows)   # rough calls: fixed, per page, per explored flow
+    need =18 + 67 * state.min_pages + 147 * len(state.flows)   # rough calls: fixed, per page, per explored flow
     if budget.working_calls < need:
         outcome.warnings.append(f"The budget ({budget.working_calls} working model calls) is below the rough estimate "
                                 f"for this goal ({need}), so some pages or criteria may stay unaudited: raise --budget-calls.")
         progress(outcome.warnings[-1])
     progress("Audit planner: planning the run...")
     prompt = (f"Start page: {audit.current_url}. The user asked for at least {state.min_pages} page(s) at Level "
-              f"{audit.target_level}." + (f" Flow to explore: {process}" if process else ""))
+              f"{audit.target_level}." + (f" Flow to explore: {process}" if process else "")
+              + (f" A WCAG-EM sample of {len(state.opened)} pages is open: audit every one, or skip_pages with a reason."
+                 if outcome.sample else ""))
     try:
         planner = build_planner(model, state)
         result = await Runner.run(planner, prompt, context=audit, max_turns=PLANNER_MAX_TURNS,
