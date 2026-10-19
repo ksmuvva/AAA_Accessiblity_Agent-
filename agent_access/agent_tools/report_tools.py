@@ -117,10 +117,12 @@ def _criterion_status(findings: list[Finding]) -> tuple[Status, str]:
 STATE_CRITERIA = ("2.1.2", "2.4.3", "3.3.1", "3.3.3", "4.1.3")
 
 
-def _measured(findings: list[Finding]) -> list[tuple]:
-    """What the automated checks found, as they recorded it (a reviewer's demotion doesn't change it)."""
-    return sorted((f.check_id, (f.original_status or f.status).value, f.description, tuple(sorted(f.selectors)))
-                  for f in findings if f.source != "agent")
+def _measured(findings: list[Finding], evidence: bool) -> list[tuple]:
+    """What the automated checks found, as they recorded it (a reviewer's demotion doesn't change it). With `evidence`
+    (a judgement criterion), what they quoted for an agent to judge counts too: the headings, the reading order. A
+    measurement's evidence is left out: it carries timings that differ on every run."""
+    return sorted((f.check_id, (f.original_status or f.status).value, f.description, tuple(sorted(f.selectors)),
+                   (f.evidence or "") if evidence else "") for f in findings if f.source != "agent")
 
 
 def inherited(audit: AuditContext, page_key: str, criterion: str) -> bool:
@@ -136,9 +138,9 @@ def inherited(audit: AuditContext, page_key: str, criterion: str) -> bool:
     state = [f for f in audit.findings_for(page_key) if f.wcag_criterion == criterion]
     if any(f.source == "agent" for f in state):
         return False
-    return criterion in SITE_CRITERIA or (
-        REGISTRY[criterion].name in audit.attempted_on(page_key)
-        and _measured(state) == _measured([f for f in audit.findings_for(base) if f.wcag_criterion == criterion]))
+    tool, page = REGISTRY[criterion], [f for f in audit.findings_for(base) if f.wcag_criterion == criterion]
+    return criterion in SITE_CRITERIA or (tool.name in audit.attempted_on(page_key)
+                                          and _measured(state, tool.judgement) == _measured(page, tool.judgement))
 
 
 def _counts(criteria: list[CriterionResult]) -> dict[str, int]:

@@ -238,3 +238,15 @@ def test_a_states_measured_failure_its_page_also_has_is_reviewed_once():
     assert needs_review_check(audit, fails[0]) and not needs_review_check(audit, fails[1])
     fails[0].original_status, fails[0].status = Status.FAIL, Status.NEEDS_REVIEW   # the reviewer doubted it on the page
     assert not needs_review_check(audit, fails[1])   # still the same measurement: the page's review stands for both
+
+
+def test_a_state_owes_a_judgement_whose_quoted_content_changed_but_not_a_measurement_whose_timing_did():
+    """Opening a panel adds headings that 2.4.6 quotes only in its evidence; 2.3.1's evidence is a frame rate."""
+    audit = with_state()
+    for f in audit.findings_for(STATE):
+        if f.wcag_criterion == "2.4.6":
+            f.evidence = "Headings: Account settings | Alerts"
+        elif f.wcag_criterion == "2.3.1":
+            f.evidence = "38 frames at 18.5 fps"
+    owed = {i["criterion"] for i in open_items(audit, STATE)["open"]}
+    assert "2.4.6" in owed and "2.3.1" not in owed
