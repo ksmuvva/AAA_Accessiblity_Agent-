@@ -56,7 +56,8 @@ def check_status_messages(ctx: Ctx) -> None:
         # Error text that appears while focus stays where it was (on the submit button) must be in a live region;
         # if focus moved to the field or message, the screen reader announces it on focus.
         if not fx["alerts"] and not fx["focus_moved"] and not fx["described"]:
-            ctx.fail("Error messages appeared but are not in a live region and focus didn't move to them.",
+            ctx.fail("Error messages appeared but not in a visible live region that was already on the page (or a "
+                     "role=\"alert\"), and focus didn't move to them.",
                      [n["selector"] for n in fx["new_text"]], "; ".join(fx["shown"][:3]))
         else:
             ctx.passed("Error messages are announced (live region, or focus moved to the error or field).")

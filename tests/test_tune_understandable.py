@@ -66,6 +66,30 @@ def test_announced_errors_pass_status_messages():
     assert Status.FAIL not in statuses(audit, "4.1.3") and Status.PASS in statuses(audit, "4.1.3")
 
 
+def test_status_messages_need_a_live_region_already_on_the_page():
+    """A screen reader announces a change to a live region it already knew, and a role="alert" even when inserted;
+    a polite region inserted with its text, or one under aria-hidden, says nothing."""
+    def outcome(region, script):
+        html = ('<html lang="en"><body><form id="f" novalidate><label for="e">Email</label><input id="e" type="email" required>'
+                f'<button type="submit">Send</button>{region}</form><script>document.getElementById("f").addEventListener('
+                f'"submit", (ev) => {{ ev.preventDefault(); {script} }});</script></body></html>')
+        return statuses(judge(html, "4.1.3"), "4.1.3")
+
+    def insert(attr, value):
+        return (f'const m = document.createElement("p"); m.setAttribute("{attr}", "{value}");'
+                'm.textContent = "Enter your email address."; document.getElementById("f").append(m);')
+    fill = 'document.getElementById("msg").textContent = "Enter your email address.";'
+    assert Status.FAIL not in outcome('<div aria-live="polite" id="msg"></div>', fill)
+    assert Status.FAIL not in outcome('', insert("role", "alert"))
+    assert Status.FAIL in outcome('', insert("aria-live", "polite"))
+    assert Status.FAIL in outcome('<div role="alert" aria-hidden="true" id="msg"></div>', fill)
+    # Inserted empty and filled in a later task, it was known before its text arrived; display: contents has no box.
+    later = ('const m = document.createElement("p"); m.setAttribute("aria-live", "polite"); document.getElementById("f")'
+             '.append(m); setTimeout(() => { m.textContent = "Enter your email address."; }, 50);')
+    assert Status.FAIL not in outcome('', later)
+    assert Status.FAIL not in outcome('<div aria-live="polite" style="display: contents"><p id="msg"></p></div>', fill)
+
+
 def test_text_only_form_records_a_verdict_for_on_input():
     html = ('<html lang="en"><body><form><label for="q">Search</label><input id="q" type="search">'
             '<button type="submit">Go</button></form></body></html>')
