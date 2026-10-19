@@ -234,6 +234,50 @@ def test_restore_page_works_inside_the_network_guard_on_http_pages(tmp_path):
     assert restored and title_after == "Home"
 
 
+class _SignInGate(http.server.BaseHTTPRequestHandler):
+    """/account needs the cookie session=ok; without it the server redirects to /login, a page with a password field."""
+
+    def do_GET(self):
+        if self.path == "/account" and "session=ok" not in (self.headers.get("Cookie") or ""):
+            self.send_response(302)
+            self.send_header("Location", "/login")
+            self.end_headers()
+            return
+        body = ("<html lang='en'><title>Sign in</title><body><form><input type='password'></form></body></html>"
+                if self.path == "/login" else "<html lang='en'><title>Account</title><body><h1>Your account</h1></body></html>")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.end_headers()
+        self.wfile.write(body.encode())
+
+    def log_message(self, *args):
+        pass
+
+
+def test_a_saved_session_audits_signed_in_pages_and_warns_when_it_expires(tmp_path):
+    from agent_access.agent_tools.browser_tools import open_url
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SignInGate)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    cookie = {"name": "session", "value": "ok", "domain": "127.0.0.1", "path": "/", "expires": -1, "httpOnly": False,
+              "secure": False, "sameSite": "Lax"}
+    (tmp_path / "live.json").write_text(json.dumps({"cookies": [cookie], "origins": []}))
+    (tmp_path / "expired.json").write_text(json.dumps({"cookies": [], "origins": []}))
+
+    async def visit(state):
+        async with AuditContext(screen_reader="emulated", storage_state=tmp_path / state) as audit:
+            loaded = await open_url(audit, f"{base}/account")
+            return loaded["final_url"], audit.warnings
+
+    try:
+        signed_in, expired = asyncio.run(visit("live.json")), asyncio.run(visit("expired.json"))
+    finally:
+        server.shutdown()
+    assert signed_in == (f"{base}/account", [])
+    assert expired[0] == f"{base}/login" and "saved session may have expired" in expired[1][0]
+
+
 def test_a_check_whose_probe_failed_says_so_to_the_agent():
     """A probe error must not look like a clean 'needs review': the finding and get_criterion both name it."""
     from agent_access.probes import PROBES, Probe

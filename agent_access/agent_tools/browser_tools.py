@@ -86,6 +86,9 @@ async def open_url(audit: AuditContext, url: str) -> dict:
         # Some sites redirect themselves (consent, region) right after load; wait for that navigation and retry once.
         await page.wait_for_load_state("load", timeout=NAVIGATION_TIMEOUT_MS)
         lang = await page.evaluate("() => document.documentElement.getAttribute('lang')")
+    if audit.storage_state and urldefrag(page.url)[0] != urldefrag(url)[0] and await page.locator("input[type=password]").count():
+        audit.warnings.append(f"{url} redirected to a sign-in page ({page.url}): the saved session may have expired, so "
+                              "that page was audited signed out.")
     audit.set_current(page.url)
     audit.dirty.discard(page.url)
     audit.start_steps(page.url)

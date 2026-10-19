@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
+from playwright.async_api import async_playwright
 
 from agent_access.budget import Budget
 from agent_access.team import run_audit
@@ -93,6 +94,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--no-trace", action="store_true", help=argparse.SUPPRESS)  # the default now; kept for old scripts
     parser.add_argument("--headed", action="store_true", help="show the browser window")
     parser.add_argument("--output-dir", type=Path, default=Path("reports"), help="where to write reports")
+    parser.add_argument("--save-login", type=Path, metavar="FILE",
+                        help="open a visible browser at the URL, wait while you sign in, save the session to FILE (keep "
+                             "it private: it signs in as you) and exit")
+    parser.add_argument("--storage-state", type=Path, metavar="FILE",
+                        help="audit with a session saved by --save-login, for pages behind a sign-in")
     parser.add_argument("--max-turns", type=int,
                         help=f"safety cap on each lead-auditor run; each page gets its own (default {TURNS_PER_PAGE} in "
                              "code mode, 120 in agent mode)")
@@ -110,6 +116,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--allow-submit takes absolute URLs, e.g. https://test.shop.example/api/checkout")
     if args.html_file and args.pages > 1:
         parser.error("--pages only works with a URL")
+    if args.save_login and args.html_file:
+        parser.error("--save-login needs the sign-in page's URL")
+    if args.storage_state and not args.storage_state.is_file():
+        parser.error(f"--storage-state: {args.storage_state} not found; create it with --save-login")
     if args.pages < 1:
         parser.error("--pages must be at least 1")
     if args.html_file and args.sample:
@@ -151,7 +161,8 @@ async def run(args: argparse.Namespace) -> int:
                  + "). Use --no-interaction to forbid that.")
     async with AuditContext(headless=not headed, allow_interaction=not args.no_interaction, output_dir=out_dir,
                             target_level=args.level, screen_reader=args.screen_reader,
-                            allowed_writes=tuple(args.allow_submit or ()), tracing=args.trace) as audit:
+                            allowed_writes=tuple(args.allow_submit or ()), tracing=args.trace,
+                            storage_state=args.storage_state) as audit:
         configure_agentic(audit, args, progress)
         preloaded = None
         if args.html_file:
@@ -230,12 +241,27 @@ def configure_agentic(audit: AuditContext, args: argparse.Namespace, progress) -
             progress(f"Memory disabled: {type(exc).__name__}: {exc}")
 
 
+async def save_login(url: str, path: Path) -> int:
+    """Open a visible browser at `url`; once you have signed in there, Enter here saves the session to `path`."""
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)
+        context = await browser.new_context()
+        await (await context.new_page()).goto(url)
+        await asyncio.to_thread(input, f"Sign in in the browser window, then press Enter here to save the session to {path} ")
+        await context.storage_state(path=str(path), indexed_db=True)  # some sign-ins (Firebase) keep their token there
+        await browser.close()
+    print(f"Saved. Audit with: --storage-state {path}", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to cp1252, which can't print summaries quoting non-Latin page text.
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
     load_dotenv()
     args = parse_args(argv)
+    if args.save_login:
+        return asyncio.run(save_login(args.url, args.save_login))
     if not os.environ.get("OPENAI_API_KEY"):
         print("OPENAI_API_KEY is not set. Add it to .env or your environment.", file=sys.stderr)
         return 2
