@@ -13,9 +13,9 @@ import html
 import math
 import random
 import re
-from urllib.parse import parse_qsl, urldefrag, urlparse
+from urllib.parse import parse_qsl, urldefrag, urljoin, urlparse
 
-from agent_access.agent_tools.browser_tools import _NON_PAGE_EXT, same_site_links
+from agent_access.agent_tools.browser_tools import _NON_PAGE_EXT, refused, same_site_links
 from agent_access.context import AuditContext
 from agent_access.intent import irreversible
 
@@ -40,14 +40,21 @@ def template(url: str) -> str:
 
 async def sitemap_urls(audit: AuditContext, origin: str) -> list[str]:
     """The URLs /sitemap.xml lists, following a sitemap index to its first MAX_SITEMAPS sitemaps. A site without one
-    (or one that fails) gives none: the links still make the sample."""
+    (or one that fails) gives none: the links still make the sample. A sitemap is the site's content, so every fetch,
+    a child sitemap's or a redirect's, must be on the audited site and pass browser_tools.refused."""
     request = (await audit.page()).context.request
     queue, urls = [f"{origin}/sitemap.xml"], []
     for _ in range(1 + MAX_SITEMAPS):
         if not queue:
             break
+        url = queue.pop(0)
+        if urlparse(url).netloc != urlparse(origin).netloc or refused(audit, url):
+            continue
         try:
-            response = await request.get(queue.pop(0), timeout=10_000)
+            response = await request.get(url, timeout=10_000, max_redirects=0)
+            if 300 <= response.status < 400 and response.headers.get("location"):
+                queue.insert(0, urljoin(url, response.headers["location"]))   # checked like the rest before fetching
+                continue
             body = await response.text() if response.ok else ""
         except Exception:
             body = ""
@@ -71,9 +78,10 @@ async def wcag_em_sample(audit: AuditContext, cap: int, seed: int) -> dict:
     templates: dict[str, list[str]] = {}
     for url in [start] + candidates:
         templates.setdefault(template(url), []).append(url)
-    structured = [urls[0] for urls in templates.values()]   # the start page first
+    structured = [urls[0] for urls in templates.values()][:cap]   # the start page first
+    while len(structured) > 1 and len(structured) + math.ceil(len(structured) / 10) > cap:
+        structured.pop()   # keep room within the cap for the random tenth of what stays
     k = math.ceil(len(structured) / 10)
-    structured = structured[:max(1, cap - k)]
     rest = [u for u in candidates if u not in structured]
     drawn = random.Random(seed).sample(rest, min(k, len(rest), cap - len(structured)))
     return {"method": METHOD, "seed": seed, "cap": cap, "candidates": len(candidates), "from_sitemap": len(listed),

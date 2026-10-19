@@ -16,12 +16,14 @@ from agent_access.team.orchestrator import run_audit
 from agent_access.team.planner import run_agentic_audit
 
 LINKED = ["about.html", "contact.html", "products/1.html", "products/2.html", "products/3.html", "blog/a-post.html",
-          "blog/b-post.html"]
+          "blog/b-post.html", "faq.html", "terms.html", "news.html", "jobs.html", "team.html"]
 LISTED = ["help.html", "products/4.html", "report.pdf"]
 
 
-def serve(tmp_path):
-    """The index links to LINKED; /sitemap.xml is a sitemap index whose one sitemap lists LISTED and an off-site page."""
+def serve(tmp_path, children=()):
+    """The index links to LINKED. /sitemap.xml redirects (it is a directory) to a sitemap index whose sitemap lists
+    LISTED and an off-site page; `children` are more sitemaps the index lists."""
+    tmp_path.mkdir(exist_ok=True)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(
         http.server.SimpleHTTPRequestHandler, directory=str(tmp_path)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -32,7 +34,9 @@ def serve(tmp_path):
         (tmp_path / name).write_text(f"<html lang='en'><head><title>{name}</title></head><body><main><h1>{name}</h1>"
                                      f"<p>{links}</p></main></body></html>", encoding="utf-8")
     locs = "".join(f"<url><loc>{base}/{n}</loc></url>" for n in LISTED) + "<url><loc>https://elsewhere.example/x</loc></url>"
-    (tmp_path / "sitemap.xml").write_text(f"<sitemapindex><sitemap><loc>{base}/pages.xml</loc></sitemap></sitemapindex>")
+    (tmp_path / "sitemap.xml").mkdir()
+    (tmp_path / "sitemap.xml" / "index.html").write_text("<sitemapindex>" + "".join(
+        f"<sitemap><loc>{c}</loc></sitemap>" for c in [*children, f"{base}/pages.xml"]) + "</sitemapindex>")
     (tmp_path / "pages.xml").write_text(f"<urlset>{locs}</urlset>")
     return base, server
 
@@ -54,19 +58,44 @@ def test_the_sample_takes_a_page_per_template_and_a_seeded_random_tenth(tmp_path
     async def scenario():
         async with AuditContext(screen_reader="emulated") as audit:
             await open_url(audit, f"{base}/index.html")
-            return [await wcag_em_sample(audit, cap, seed=3) for cap in (10, 10, 3)]
+            return [await wcag_em_sample(audit, cap, seed=3) for cap in (20, 20, 10, 3)]
 
     try:
-        full, again, capped = asyncio.run(scenario())
+        full, again, capped, small = asyncio.run(scenario())
     finally:
         server.shutdown()
-    # From the links: index, about, contact, products/{id}, blog/{slug}; from the sitemap: help. Not the PDF or off-site.
-    assert full["structured"] == urls(base, "index.html", "about.html", "contact.html", "products/1.html",
-                                      "blog/a-post.html", "help.html")
-    assert len(full["random"]) == 1
-    assert full["random"][0] in urls(base, "products/2.html", "products/3.html", "blog/b-post.html", "products/4.html")
-    assert again == full and full["from_sitemap"] == 4 and full["candidates"] == 9   # the same seed, the same sample
-    assert capped["pages"] == urls(base, "index.html", "about.html") + capped["random"] and len(capped["random"]) == 1
+    # One page per template from the links, then help from the sitemap (reached through a redirect). Not the PDF or
+    # the off-site page.
+    every = urls(base, "index.html", "about.html", "contact.html", "products/1.html", "blog/a-post.html", "faq.html",
+                 "terms.html", "news.html", "jobs.html", "team.html", "help.html")
+    assert full["structured"] == every and len(full["random"]) == 2   # 11 templates: a random tenth is 2 pages
+    assert set(full["random"]) <= set(urls(base, "products/2.html", "products/3.html", "blog/b-post.html", "products/4.html"))
+    assert again == full and full["from_sitemap"] == 4 and full["candidates"] == 14   # the same seed, the same sample
+    # Capped, the structured part shrinks until it and its own random tenth fit: 9 + 1 of 10, 2 + 1 of 3.
+    assert capped["structured"] == every[:9] and len(capped["random"]) == 1
+    assert small["pages"] == every[:2] + small["random"] and len(small["random"]) == 1
+
+
+def test_a_sitemap_cannot_send_the_auditor_to_another_site(tmp_path):
+    (tmp_path / "other").mkdir()
+    other = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(
+        http.server.SimpleHTTPRequestHandler, directory=str(tmp_path / "other")))
+    threading.Thread(target=other.serve_forever, daemon=True).start()
+    other_base = f"http://127.0.0.1:{other.server_address[1]}"   # another port: another site, though reachable
+    base, server = serve(tmp_path / "site", children=[f"{other_base}/other.xml"])
+    (tmp_path / "other" / "other.xml").write_text(f"<urlset><url><loc>{base}/from-other.html</loc></url></urlset>")
+
+    async def scenario():
+        async with AuditContext(screen_reader="emulated") as audit:
+            await open_url(audit, f"{base}/index.html")
+            return await wcag_em_sample(audit, 20, seed=3)
+
+    try:
+        sample = asyncio.run(scenario())
+    finally:
+        server.shutdown()
+        other.shutdown()
+    assert sample["from_sitemap"] == 4   # only the site's own sitemap was read
 
 
 def test_code_mode_audits_the_sample_instead_of_the_picks_and_reports_it(tmp_path):
