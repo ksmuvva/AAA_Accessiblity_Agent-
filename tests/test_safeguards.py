@@ -25,8 +25,8 @@ def finding(status: Status, source: str, criterion: str = "1.1.1", page: str = "
                    check_id="manual" if source == "agent" else "check_x", page_url=page, description="x")
 
 
-def verdicts(findings, verdict):
-    return ReviewResult(verdicts=[ReviewVerdict(finding_id=f.id, verdict=verdict, reason="r") for f in findings])
+def verdicts(findings, verdict, **fields):
+    return ReviewResult(verdicts=[ReviewVerdict(finding_id=f.id, verdict=verdict, reason="r", **fields) for f in findings])
 
 
 def test_reviewer_verdict_rules():
@@ -37,7 +37,7 @@ def test_reviewer_verdict_rules():
     assert judged.status is Status.NEEDS_REVIEW and judged.original_status is Status.FAIL
 
     rejected = finding(Status.FAIL, "custom")
-    log = apply_verdicts([rejected], verdicts([rejected], "rejected"))
+    log = apply_verdicts([rejected], verdicts([rejected], "rejected", fact_holds=False))
     assert rejected.status is Status.NEEDS_REVIEW and log[0]["demoted"] and log[0]["status"] == "fail"
 
     # Agent passes are verified too; doubt sends them to needs_review, never to fail.
@@ -49,7 +49,7 @@ def test_reviewer_verdict_rules():
 
 def test_demoted_failure_never_becomes_a_pass():
     fail, agent_pass = finding(Status.FAIL, "axe"), finding(Status.PASS, "agent")
-    apply_verdicts([fail], verdicts([fail], "rejected"))
+    apply_verdicts([fail], verdicts([fail], "rejected", fact_holds=False))
     assert _criterion_status([fail, agent_pass])[0] is Status.NEEDS_REVIEW
     assert _criterion_status([agent_pass])[0] is Status.PASS
 
@@ -304,9 +304,13 @@ def test_a_verdict_that_contradicts_what_the_reviewer_saw_counts_as_uncertain():
         ReviewVerdict(finding_id=consistent.id, verdict="confirmed", reason="Text labels.", defect_seen=False)]))
     assert consistent.status is Status.PASS and consistent.review_verdict == "confirmed"
     # E1's 2.4.2 "Home" and 3.1.2 French passage: the reviewer agreed with the measured fact and rejected the verdict.
+    # The rerun's 2.4.2 "Page": rejected with the fact confirmed in its reason but not in fact_holds.
     disputed, wrong = finding(Status.FAIL, "custom", "2.4.2"), finding(Status.FAIL, "custom", "3.1.2")
-    apply_verdicts([disputed, wrong], ReviewResult(verdicts=[
+    unsaid = finding(Status.FAIL, "custom", "2.4.2")
+    apply_verdicts([disputed, wrong, unsaid], ReviewResult(verdicts=[
         ReviewVerdict(finding_id=disputed.id, verdict="rejected", reason="The title is 'Home'; fine here.", fact_holds=True),
-        ReviewVerdict(finding_id=wrong.id, verdict="rejected", reason="The passage has lang='fr'.", fact_holds=False)]))
+        ReviewVerdict(finding_id=wrong.id, verdict="rejected", reason="The passage has lang='fr'.", fact_holds=False),
+        ReviewVerdict(finding_id=unsaid.id, verdict="rejected", reason="The title is only 'Page', but the heading names the shop.")]))
     assert disputed.status is Status.FAIL and disputed.review_verdict == "uncertain" and "contradicted" in disputed.review_note
+    assert unsaid.status is Status.FAIL and unsaid.review_verdict == "uncertain"
     assert wrong.status is Status.NEEDS_REVIEW and wrong.review_verdict == "rejected"

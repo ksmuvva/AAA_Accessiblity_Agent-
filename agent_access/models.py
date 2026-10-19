@@ -123,7 +123,8 @@ class ReviewVerdict(BaseModel):
         "false, a fail you confirm has true. null if you couldn't check."))
     fact_holds: bool | None = Field(default=None, description=(
         "For a measured failure (source axe or custom): whether what the check measured is true on the page (the "
-        "element, attribute, text or value it names), whatever you think of the verdict. null for other items."))
+        "element, attribute, text or value it names), whatever you think of the verdict: for \"The title 'Page' is "
+        "generic\" the fact is that the title is 'Page'. Rejecting a measured failure needs false. null for other items."))
 
 
 class ReviewResult(BaseModel):
