@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 
 from agent_access.probes.contrast import contrast_ratio, parse_color
+from agent_access.probes.iris import FAILURES as IRIS_FAILURES
 from agent_access.probes.keyboard import MAX_IFRAME_TABS
+from agent_access.probes.layout import FLASH_AREA_PX
 from agent_access.probes.screen_reader import spoken_name
 from agent_access.rules import AXE, CCA, PW, SR, Ctx, wcag_tool
 from agent_access.rules.common import (
@@ -238,8 +240,6 @@ def check_timeout_warnings(ctx: Ctx) -> None:
 
 # ---------------------------------------------------------------- 2.3 Seizures and Physical Reactions
 
-# 25% of a 10-degree visual field is about 21,824 px^2 at typical viewing distance (WCAG 2.3.1 note).
-FLASH_AREA_PX = 21_824
 FLASH_NOTE = "Frame sampling is limited by screenshot speed; fast flashing (above half the sampling rate) can be missed."
 # 3 flashes/s is a 3 Hz on/off signal; sampling must run above twice that (Nyquist) to see it, or a pass is unsupported.
 MIN_FLASH_FPS = 7
@@ -268,6 +268,17 @@ def _moving_content(m: dict) -> list[str]:
         + (["canvas"] if m.get("canvas") else [])
 
 
+def _iris_failed(ctx: Ctx, fl: dict) -> None:
+    """EA IRIS, when installed, records a few seconds at video rate and so catches flicker too fast for the sampler.
+    It only adds a fail: it judges the frame's average luminance, so it misses flashes smaller than about a tenth
+    of the viewport, which the sampler's grid sees."""
+    iris = fl.get("iris") or {}
+    if failed := [r for r in iris.get("results", []) if r in IRIS_FAILURES]:
+        ctx.fail(f"EA IRIS: content flashes more than 3 times a second ({', '.join(failed)}).",
+                 evidence=f"{iris['seconds']} s recorded at {iris['fps']} fps ({iris['painted_frames']} repaints): "
+                          f"{iris['luminance_fail_frames']} luminance and {iris['red_fail_frames']} red flash-failure frames.")
+
+
 SAMPLED_NOTE = ("No flashing above 3 per second in the sampled frames; sampling can't prove there is none, so confirm "
                 "nothing flashes later or between frames.")
 
@@ -279,6 +290,7 @@ def check_flash_thresholds(ctx: Ctx) -> None:
         return
     ev = f"{fl['frames']} frames at {fl['fps']} fps; max {fl['max']} flashes/s; flashing area {fl['area']}px^2 " \
          f"(threshold {FLASH_AREA_PX}px^2). {FLASH_NOTE}"
+    _iris_failed(ctx, fl)
     if fl["red_over_three"] and fl["red_area"] >= FLASH_AREA_PX:
         ctx.fail("Saturated red flashes more than 3 times a second over a large area (the red flash threshold).",
                  evidence=f"{fl['red_over_three']} grid cells, {fl['red_area']}px^2. {ev}")
@@ -299,6 +311,7 @@ def check_three_flashes(ctx: Ctx) -> None:
     """At AAA, nothing may flash more than 3 times in any second, whatever its size."""
     if (fl := _flashing(ctx)) is None:
         return
+    _iris_failed(ctx, fl)
     if fl["over_three"] or fl["red_over_three"]:
         ctx.fail(f"Content flashes {fl['max']} times a second." if fl["over_three"]
                  else "Saturated red flashes more than 3 times a second.", evidence=FLASH_NOTE)

@@ -6,12 +6,15 @@ import functools
 import http.server
 import threading
 
+import pytest
+
 from audit_helpers import FIXTURES, found, judge
 
 from agent_access.agent_tools.browser_tools import load_html_content, open_url
 from agent_access.context import AuditContext
 from agent_access.models import Status
 from agent_access.probes import collect
+from agent_access.probes.iris import iris_command
 
 
 def descriptions(audit, criterion, status):
@@ -63,6 +66,28 @@ def test_saturated_red_flashes_fail_and_are_measured_by_wcags_formula():
     small = _rule_on("2.3.1", flashing={**base, "cell_area_px": 1_000, "red_flashes_per_second": [5.0, 0.0, 0.0, 0.0]})
     assert {f.status for f in small} == {Status.NEEDS_REVIEW}
     assert {f.status for f in _rule_on("2.3.2", flashing={**base, "red_flashes_per_second": [5.0] * 4})} == {Status.FAIL}
+
+
+def test_iris_only_adds_fails_to_the_sampler():
+    """EA IRIS, when installed, catches flicker too fast for the sampler; it averages the frame's luminance, so it
+    misses small flashes the sampler's grid sees, and its silence never overrides the sampler."""
+    base = {"frames": 20, "fps": 12.0, "flashes_per_second": [0.0] * 4, "cell_area_px": 30_000}   # sampler: quiet
+    iris = {"seconds": 3, "fps": 30, "painted_frames": 90, "luminance_fail_frames": 61, "red_fail_frames": 0}
+    for criterion in ("2.3.1", "2.3.2"):
+        flicker = _rule_on(criterion, flashing={**base, "iris": {**iris, "results": ["LuminanceFlashFailure"]}})
+        assert any(f.status is Status.FAIL and f.description.startswith("EA IRIS") for f in flicker), criterion
+        small = _rule_on(criterion, flashing={**base, "flashes_per_second": [5.0] * 4,
+                                              "iris": {**iris, "results": [], "luminance_fail_frames": 0}})
+        assert any(f.status is Status.FAIL for f in small), criterion   # the sampler's fail stands
+        broken = _rule_on(criterion, flashing={**base, "iris": {"error": "IRIS couldn't run: CalledProcessError"}})
+        assert Status.FAIL not in {f.status for f in broken}, criterion
+
+
+@pytest.mark.skipif(not iris_command(), reason="EA IRIS (IrisApp) and ffmpeg aren't installed")
+def test_the_real_iris_fails_a_flashing_page():
+    audit = judge("o_flash_page.html", "2.3.1", "2.3.2")
+    for criterion in ("2.3.1", "2.3.2"):
+        assert any(f.description.startswith("EA IRIS") for f in found(audit, criterion).get(Status.FAIL, [])), criterion
 
 
 def test_time_limits_and_interruptions_are_flagged():
