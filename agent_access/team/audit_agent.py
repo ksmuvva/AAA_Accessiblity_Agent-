@@ -88,7 +88,9 @@ Three kinds of judgement:
 - A not-applicable result: confirm from the screenshot, outline and accessibility tree that the page really has
   no such content, then record not_applicable (say what you checked), or judge it.
 Use "pass" only when evidence clearly supports it, "fail" only for a defect you observed directly,
-"needs_review" when you can't decide, "not_applicable" when the page has no relevant content. Use
+"needs_review" when you can't decide, "not_applicable" when the page has no relevant content. A defect the check
+flagged that you then confirmed on the page is a fail, not needs_review; so is one a check saw while it submitted a
+form or opened a control (its recorded results are observations, though a reload has cleared them). Use
 record_findings to record several criteria you have read, each with its own evidence.
 The accessibility tree never shows lang attributes; use get_page_outline's language_parts or inspect_element.
 {subagents}{process}
