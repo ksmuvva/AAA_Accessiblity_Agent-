@@ -115,6 +115,10 @@ const textLinks = [...document.querySelectorAll('p a[href], li a[href], td a[hre
     || (parseFloat(sa.outlineWidth) > 0 && sa.outlineStyle !== 'none'));
 }).slice(0, 15).map((a) => ({ selector: cssPath(a), text: text(a).slice(0, 60), link_color: rgbaText(getComputedStyle(a).color),
   text_color: rgbaText(getComputedStyle(a.parentElement).color) }));
+// Visible button labels, so 1.3.3 can tell an instruction that names its control from one that only describes it.
+const BUTTONS = 'button, input[type="submit"], input[type="button"], [role="button"]';
+const buttonNames = [...document.querySelectorAll(BUTTONS), ...shadowAll(BUTTONS)].filter(isVisible).slice(0, 200)
+  .map((b) => (b.tagName === 'INPUT' ? b.value : text(b)).slice(0, 80)).filter(Boolean);
 return {
   tables, spaced_letters: spacedLetters, fake_lists: fakeLists, pre_columns: preColumns, undecorated_text_links: textLinks,
   ungrouped_radios: ungroupedRadios,
@@ -124,7 +128,7 @@ return {
   lang_sample: inherited(main).slice(0, 1500),
   body_text: text(document.body).slice(0, 30000),
   word_count: words(text(main)),
-  links, images, background_images: bgImages, fake_headings: fakeHeadings, paragraphs, passages,
+  links, button_names: buttonNames, images, background_images: bgImages, fake_headings: fakeHeadings, paragraphs, passages,
   heading_count: headings,
   landmarks: { main: !!document.querySelector('main, [role="main"]'), nav: !!document.querySelector('nav, [role="navigation"]'),
     banner: !!document.querySelector('header, [role="banner"]'), contentinfo: !!document.querySelector('footer, [role="contentinfo"]') },
