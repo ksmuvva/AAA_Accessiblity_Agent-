@@ -121,6 +121,9 @@ class ReviewVerdict(BaseModel):
     defect_seen: bool | None = Field(default=None, description=(
         "Whether you saw a failure of this criterion on the page, whatever the item's status: a pass you confirm has "
         "false, a fail you confirm has true. null if you couldn't check."))
+    fact_holds: bool | None = Field(default=None, description=(
+        "For a measured failure (source axe or custom): whether what the check measured is true on the page (the "
+        "element, attribute, text or value it names), whatever you think of the verdict. null for other items."))
 
 
 class ReviewResult(BaseModel):

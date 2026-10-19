@@ -303,3 +303,10 @@ def test_a_verdict_that_contradicts_what_the_reviewer_saw_counts_as_uncertain():
     apply_verdicts([consistent], ReviewResult(verdicts=[
         ReviewVerdict(finding_id=consistent.id, verdict="confirmed", reason="Text labels.", defect_seen=False)]))
     assert consistent.status is Status.PASS and consistent.review_verdict == "confirmed"
+    # E1's 2.4.2 "Home" and 3.1.2 French passage: the reviewer agreed with the measured fact and rejected the verdict.
+    disputed, wrong = finding(Status.FAIL, "custom", "2.4.2"), finding(Status.FAIL, "custom", "3.1.2")
+    apply_verdicts([disputed, wrong], ReviewResult(verdicts=[
+        ReviewVerdict(finding_id=disputed.id, verdict="rejected", reason="The title is 'Home'; fine here.", fact_holds=True),
+        ReviewVerdict(finding_id=wrong.id, verdict="rejected", reason="The passage has lang='fr'.", fact_holds=False)]))
+    assert disputed.status is Status.FAIL and disputed.review_verdict == "uncertain" and "contradicted" in disputed.review_note
+    assert wrong.status is Status.NEEDS_REVIEW and wrong.review_verdict == "rejected"
