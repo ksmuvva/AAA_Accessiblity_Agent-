@@ -130,6 +130,7 @@ def _idle(ctx: Ctx) -> list[str]:
         what = [f"text '{w}'" for w in e["warnings"]] + [f"dialog '{d}'" for d in e["dialogs"]]
         what += [f"controls {', '.join(e['controls'])}"] if e["controls"] else []
         what += [f"went to {e['navigated_to']}"] if e["navigated_to"] else []
+        what += [f"{e['fields_gone']} form field(s) gone"] if e["fields_gone"] else []
         m = e["idle_minutes"]
         out.append((f"after {m} min" if m < 60 else f"after {m // 60} h") + " idle: " + "; ".join(what))
     return out

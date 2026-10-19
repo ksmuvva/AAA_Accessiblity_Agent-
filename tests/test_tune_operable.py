@@ -92,6 +92,19 @@ def test_a_faked_clock_shows_what_an_idle_page_does():
     assert "nothing happened in 20 hours" in found(quiet, "2.2.1")[Status.PASS][0].description
 
 
+def test_a_countdown_ticking_each_second_that_takes_the_form_away_is_a_time_limit():
+    """The eval's quiz_1: a 60-second countdown ticking every second replaces the answers with "Time is up. Answers
+    sent.", with no request and no navigation. Jumps fired that timer once each and never reached zero (a measured
+    pass); the first 5 minutes now run every tick."""
+    html = ('<html lang="en"><title>Quiz</title><main><h1>Quiz</h1><form id="q"><label>Answer <input name="a"></label>'
+            '<label>Other <input name="b"></label></form><p id="clock" aria-live="polite"></p></main><script>let left = 60;'
+            'const tick = setInterval(() => { left -= 1; document.getElementById("clock").textContent = left + " seconds left";'
+            ' if (left <= 0) { clearInterval(tick); document.getElementById("q").replaceWith(Object.assign('
+            'document.createElement("p"), { textContent: "Time is up. Answers sent." })); } }, 1000);</script></html>')
+    review = found(judge(html, "2.2.1"), "2.2.1")[Status.NEEDS_REVIEW][0]
+    assert review.evidence.startswith("after 5 min idle: text 'Time is up. Answers sent.'; 2 form field(s) gone")
+
+
 def test_navigation_aids_pass_when_present():
     audit = judge("o_ways_page.html", "2.4.4", "2.4.5", "2.4.8")
     assert "navigation, search" in descriptions(audit, "2.4.5", Status.PASS)[0]
