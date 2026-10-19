@@ -345,6 +345,7 @@ async def skip_link(audit: AuditContext) -> dict:
 
 
 IDLE_MINUTES = [*range(5, 61, 5), 20 * 60]  # every 5 minutes for an hour, then 20 hours (WCAG's 20-hour exception)
+TICK_BY_TICK_MS = 2 * 60_000  # short limits (a quiz, a payment form): fast animation timers make longer runs slow
 
 
 async def _cut(route, moves: list) -> None:
@@ -360,8 +361,8 @@ async def _cut(route, moves: list) -> None:
 
 @probe("timeouts")
 async def timeouts(audit: AuditContext) -> dict:
-    """The page left idle on a faked clock: each new time-limit warning (with any control to extend it), dialog and
-    navigation, at the idle time it happened. A clock can't be uninstalled, so this loads the page again in a browser
+    """The page left idle on a faked clock: each new time-limit warning (with any control to extend it), dialog,
+    navigation and form fields taken away, at the idle time it happened. A clock can't be uninstalled, so this loads the page again in a browser
     context of its own, with the run's cookies and safety script, where only GET requests that don't sign out or
     delete go out and WebSockets reach nothing. A
     jump fires each due timer once, hence the 5-minute steps. Server-side session expiry can't be faked."""
@@ -380,20 +381,25 @@ async def timeouts(audit: AuditContext) -> dict:
         key = base_page_key(audit.current_url)
         await (page.set_content(audit.inline_html[key]) if key in audit.inline_html else page.goto(key, wait_until="load"))
         moves.clear()
-        seen, events, idle = set((await page.evaluate(js("page/idle_text")))["warnings"]), [], 0
+        start = await page.evaluate(js("page/idle_text"))
+        seen, fields, events, idle = set(start["warnings"]), start["fields"], [], 0
         for minutes in IDLE_MINUTES:
-            await page.clock.fast_forward((minutes - idle) * 60_000)
+            if idle == 0:   # every timer as it falls due, so a countdown ticking each second reaches zero
+                await page.clock.run_for(TICK_BY_TICK_MS)
+            # A jump fires each due timer once: it reaches a session timeout set as one long timer.
+            await page.clock.fast_forward((minutes - idle) * 60_000 - (TICK_BY_TICK_MS if idle == 0 else 0))
             idle = minutes
             await page.wait_for_timeout(250)
             try:
                 now = await page.evaluate(js("page/idle_text"))
             except Exception:  # the page is navigating away
-                now = {"warnings": [], "controls": []}
+                now = {"warnings": [], "controls": [], "fields": fields}
             new = [w for w in now["warnings"] if w not in seen]
             seen.update(new)
-            if new or dialogs or moves:
+            gone, fields = max(0, fields - now["fields"]), min(fields, now["fields"])
+            if new or dialogs or moves or gone:
                 events.append({"idle_minutes": minutes, "warnings": new[:3], "controls": now["controls"] if new else [],
-                               "dialogs": dialogs[:3], "navigated_to": moves[-1] if moves else None})
+                               "dialogs": dialogs[:3], "navigated_to": moves[-1] if moves else None, "fields_gone": gone})
                 dialogs.clear()
             if moves:
                 break
