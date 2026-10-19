@@ -28,13 +28,15 @@ def test_the_screen_reader_user_hears_moves_acts_and_records_with_its_transcript
                       (await sr_press(audit, state, "Tab"))["heard"]]
             recorded = await sr_record_stuck(audit, state, "4.1.2", "The button after Email has no name.")
             heard += [(await sr_press(audit, state, "Tab"))["heard"], (await sr_press(audit, state, "Enter"))["heard"]]
-            return heard, recorded, [f for f in audit.findings if f.wcag_criterion == "4.1.2"]
+            return heard, recorded, [f for f in audit.findings if f.wcag_criterion == "4.1.2" and f.source == "agent"], audit
 
-    heard, recorded, found = asyncio.run(scenario())
+    heard, recorded, found, audit = asyncio.run(scenario())
     assert heard[:3] == ["heading, level 1, Sign up", "Terms, link", heard[2]] and heard[2].startswith("Email, edit")
     assert heard[3].startswith("Email, edit, focused") and heard[5] == "button, focused"   # the icon button: no name
     assert heard[6].startswith("Submit, button, focused") and "announced: Enter your email address." in heard[7]
-    assert "error" not in recorded and len(found) == 1 and found[0].status is Status.FAIL and found[0].source == "agent"
+    assert "error" not in recorded and len(found) == 1 and found[0].status is Status.FAIL
+    # Its keys changed the page, so the fail belongs to a labelled state the reviewer can rebuild by replaying them.
+    assert found[0].page_url == "signup [screen reader]" and found[0].page_url in audit.state_paths
     # The cursor followed focus to the icon button, so the fail points at it; its evidence is what was heard.
     assert "icon" in found[0].selectors[0] and "> press Tab\n< button, focused" in found[0].evidence
 
@@ -60,7 +62,7 @@ def test_it_never_activates_a_control_that_would_do_something_for_real_nor_types
 
 def test_with_sr_agent_it_runs_once_per_page_after_the_lead_and_its_fail_is_reviewed(tmp_path):
     model = RouterModel({
-        "lead auditor": [{"notes_for_human": []}] * 2,
+        "lead auditor": [{"notes_for_human": []}] * 4,   # the page, then the state the screen reader user labelled
         "screen reader user": [call("sr_read", {"command": "next_form_field"}), call("sr_press", {"key": "Tab"}),
                                call("sr_record_stuck", {"criterion": "4.1.2", "description": "An unnamed button."}),
                                {"notes_for_human": ["The Submit button result was announced."]}],
@@ -78,6 +80,7 @@ def test_with_sr_agent_it_runs_once_per_page_after_the_lead_and_its_fail_is_revi
     assert len(model.inputs["screen reader user"]) == 4 and not model.scripts["screen reader user"]   # one run of 4 steps
     fail = next(f for f in audit.findings if f.wcag_criterion == "4.1.2" and f.source == "agent")
     assert fail.status is Status.FAIL and fail.review_verdict == "confirmed"   # the reviewer checked it
+    assert fail.page_url == "signup [screen reader]"   # where it happened: the state, rebuilt for the review
     assert "signup: screen reader user: The Submit button result was announced." in outcome.lead_notes
 
 

@@ -46,6 +46,7 @@ class CriterionResult(BaseModel):
     status: Status
     summary: str
     findings: list[Finding] = Field(default_factory=list)
+    inherited_from: str | None = None   # a labelled state's result taken from the page it was reached from
 
 
 class AuditReport(BaseModel):

@@ -604,7 +604,7 @@ def planner_tools(state: PlanState) -> list:
 async def _review(audit: AuditContext, state: PlanState, pages: list[str] | None = None) -> tuple[list[dict], list[str]]:
     from agent_access.team.reviewer import needs_review_check, review_findings
     state.reviewed = True
-    if not state.review or not any(needs_review_check(f) for f in audit.findings):
+    if not state.review or not any(needs_review_check(audit, f) for f in audit.findings):
         return [], []
     log, errors = await review_findings(audit, state.reviewer_model, pages=pages)
     state.review_log += log
@@ -748,7 +748,7 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
         # Findings recorded after the planner's review (a floor sweep at finish, a floor lead pass) are reviewed too,
         # and the summary is rewritten so it includes them.
         from agent_access.team.reviewer import needs_review_check
-        late = sorted({f.page_url for f in audit.findings if needs_review_check(f) and f.review_verdict is None})
+        late = sorted({f.page_url for f in audit.findings if needs_review_check(audit, f) and f.review_verdict is None})
         if late:
             progress("Reviewer: verifying findings recorded after the review...")
             await _review(audit, state, pages=late)

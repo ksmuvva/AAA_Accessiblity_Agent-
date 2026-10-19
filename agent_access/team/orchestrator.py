@@ -222,7 +222,7 @@ def coverage_warnings(audit: AuditContext, skipped: dict[str, str] | None = None
 
 def unreviewed_warning(audit: AuditContext) -> list[str]:
     """After the review: the results it never got to (budget, an error, a page it couldn't reload, --skip-review)."""
-    n = sum(1 for f in audit.findings if needs_review_check(f) and f.review_verdict in (None, "not_reviewed"))
+    n = sum(1 for f in audit.findings if needs_review_check(audit, f) and f.review_verdict in (None, "not_reviewed"))
     return [f"{n} result(s) were not reviewed; the report counts an agent's verdict among them as needs review."] if n else []
 
 
@@ -316,6 +316,7 @@ async def run_audit(
             progress(f"Lead auditor: {page_key}")
             await _lead_runs(audit, page_key, model, max_turns, outcome, f"{page_key}: " if multi else "")
             outcome.lead_notes += await run_sr_user(audit, page_key, model, outcome.errors)   # --sr-agent only
+            await measure_remaining(audit, page_key)   # lazy: its states inherit only what the page's checks measured
             # A state the lead labelled there (a menu open, an error shown) is judged like a page, when it can be rebuilt.
             for state in [k for k in audit.pages if k in audit.state_paths and base_page_key(k) == page_key]:
                 progress(f"Lead auditor: {state}")
@@ -338,7 +339,7 @@ async def run_audit(
     outcome.warnings = coverage_warnings(audit)
 
     # Review even after an early stop: whatever was recorded still reaches the report.
-    if review and any(needs_review_check(f) for f in audit.findings):
+    if review and any(needs_review_check(audit, f) for f in audit.findings):
         progress("Reviewer: verifying failures, judged passes and not-applicable verdicts...")
         outcome.review_log, review_errors = await review_findings(audit, reviewer_model)
         outcome.errors += review_errors

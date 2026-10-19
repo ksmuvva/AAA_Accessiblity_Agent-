@@ -53,7 +53,7 @@ async def _focus_pixels(page, stop: dict) -> dict | None:
 @probe("keyboard")
 async def keyboard(audit: AuditContext) -> dict:
     page = await audit.page()
-    await page.evaluate(js("keyboard/reset"))
+    await page.evaluate(js("keyboard/reset"), True)   # Tab starts at the top, as on a fresh load
     stops: list[dict] = []
     seen: set[int] = set()
     stuck_on = stuck_in_iframe = cycle = None
