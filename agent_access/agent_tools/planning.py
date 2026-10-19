@@ -25,7 +25,7 @@ from agents import RunContextWrapper, function_tool
 
 from agent_access.context import AuditContext, no_page
 from agent_access.models import Status
-from agent_access.agent_tools.report_tools import _criterion_status
+from agent_access.agent_tools.report_tools import _criterion_status, inherited
 from agent_access.rules import REGISTRY
 
 SPECIALIST_FOR_DOMAIN = {"forms": "audit_forms", "media": "audit_media", "navigation": "audit_navigation"}
@@ -69,9 +69,13 @@ def open_items(audit: AuditContext, page_url: str | None = None, domain: str | N
     tried = audit.attempted_on(page_url)
     open_, exhausted = [], []
     specialists: dict[str, dict] = {}
+    same_as_page = 0
     for rule in audit.target_rules():
         tool = REGISTRY[rule.wcag_criterion]
         if domain is not None and tool.domain != domain:
+            continue
+        if inherited(audit, page_url, rule.wcag_criterion):
+            same_as_page += 1
             continue
         crit = [f for f in findings if f.wcag_criterion == rule.wcag_criterion]
         if is_exhausted(crit):
@@ -94,6 +98,8 @@ def open_items(audit: AuditContext, page_url: str | None = None, domain: str | N
         "unmeasured": unmeasured_criteria(audit, page_url, domain),
         "measurement": getattr(audit, "measurement", None) or "eager",
     }
+    if same_as_page:   # a labelled state: what it didn't change takes the result of the page it was reached from
+        items["inherited"] = same_as_page
     if domain is None:
         items["specialists"] = specialists
     return items
@@ -109,6 +115,8 @@ def get_open_items(ctx: RunContextWrapper[AuditContext]) -> str:
     Each open item shows its status, `measured` (whether its automated check has run on this page state) and
     `automated` (that check's results by status). `specialists` lists, per specialist, the open criteria in its area
     and whether it has been tried on this page. `unmeasured` lists target criteria whose check hasn't run.
+    In a labelled state, criteria whose checks found the same as on the page it was reached from take that page's
+    result and are not listed (`inherited` counts them).
     It does not tell you what to do next: decide the order and the method yourself (measure with run_checks,
     delegate an area to its specialist, or judge criteria yourself with get_criterion and record_findings).
     Keep going until done is true. Criteria in exhausted_for_human need a human tester.

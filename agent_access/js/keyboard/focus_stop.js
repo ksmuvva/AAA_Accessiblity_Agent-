@@ -1,4 +1,5 @@
 // @body
+document.getElementById('__a11yTabStart')?.remove();   // keyboard/reset's starting stop: Tab has left it
 let el = document.activeElement;
 while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
 if (!el || el === document.body || el === document.documentElement) return null;

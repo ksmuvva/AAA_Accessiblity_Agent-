@@ -112,6 +112,37 @@ def _criterion_status(findings: list[Finding]) -> tuple[Status, str]:
     return Status.NOT_TESTED, "Not tested."
 
 
+# What a labelled state always owes, whatever its checks found: how focus and errors behave on the way into it can
+# only be judged there (a trap in an opened dialog, where focus lands, an error or status message).
+STATE_CRITERIA = ("2.1.2", "2.4.3", "3.3.1", "3.3.3", "4.1.3")
+
+
+def _measured(findings: list[Finding], evidence: bool) -> list[tuple]:
+    """What the automated checks found, as they recorded it (a reviewer's demotion doesn't change it). With `evidence`
+    (a judgement criterion), what they quoted for an agent to judge counts too: the headings, the reading order. A
+    measurement's evidence is left out: it carries timings that differ on every run."""
+    return sorted((f.check_id, (f.original_status or f.status).value, f.description, tuple(sorted(f.selectors)),
+                   (f.evidence or "") if evidence else "") for f in findings if f.source != "agent")
+
+
+def inherited(audit: AuditContext, page_key: str, criterion: str) -> bool:
+    """True when a labelled state takes this criterion's result from the page it was reached from, so it owes no
+    judgement, review or report entry of its own: no agent judged it in the state, the state doesn't always owe it,
+    and its check ran there and found exactly what it found on the page (a cross-page criterion compares pages, and a
+    state is not another page). The page's judgement and review then stand for both."""
+    from agent_access.engine import SITE_CRITERIA   # here: the engine imports this module
+
+    base = base_page_key(page_key)
+    if not is_state_key(page_key) or criterion in STATE_CRITERIA or base not in audit.pages:
+        return False
+    state = [f for f in audit.findings_for(page_key) if f.wcag_criterion == criterion]
+    if any(f.source == "agent" for f in state):
+        return False
+    tool, page = REGISTRY[criterion], [f for f in audit.findings_for(base) if f.wcag_criterion == criterion]
+    return criterion in SITE_CRITERIA or (tool.name in audit.attempted_on(page_key)
+                                          and _measured(state, tool.judgement) == _measured(page, tool.judgement))
+
+
 def _counts(criteria: list[CriterionResult]) -> dict[str, int]:
     return {s.value: sum(1 for c in criteria if c.status is s) for s in Status}
 
@@ -145,10 +176,18 @@ def _criterion_results(audit: AuditContext, page_url: str, rules) -> list[Criter
     """Each criterion's reported status on a page. Only a confirmed review makes a pass or a not-applicable: an agent's
     verdict the reviewer didn't confirm, an automated pass or not-applicable no auditor confirmed (the check only saw
     the page as loaded), and an agent's not-applicable over a check that measured content are all needs_review. The
-    agents' own views (_criterion_status) still show what was recorded."""
+    agents' own views (_criterion_status) still show what was recorded. A state's inherited criterion shows its page's
+    result, marked inherited_from, so the site-wide view counts it once."""
     page_findings = audit.findings_for(page_url)
-    results = []
+    results, base = [], None
     for rule in rules:
+        if inherited(audit, page_url, rule.wcag_criterion):
+            base = base or {c.wcag_criterion: c for c in _criterion_results(audit, base_page_key(page_url), rules)}
+            from_page = base[rule.wcag_criterion]
+            results.append(from_page.model_copy(update={
+                "summary": f"As on {base_page_key(page_url)}, which this state was reached from: {from_page.summary}",
+                "findings": [], "inherited_from": base_page_key(page_url)}))
+            continue
         raw = [f for f in page_findings if f.wcag_criterion == rule.wcag_criterion]
         unconfirmed = [f for f in raw if f.source == "agent" and f.status in DECIDED and f.review_verdict != "confirmed"]
         rule_findings = [_reported(f) for f in raw]
@@ -184,7 +223,7 @@ def compile_report(audit: AuditContext, page_url: str | None = None) -> AuditRep
 def _combine(per_page_results: list[tuple[str, list[CriterionResult]]], rules) -> list[CriterionResult]:
     combined = []
     for i, rule in enumerate(rules):
-        per_page = [(url, results[i]) for url, results in per_page_results]
+        per_page = [(url, results[i]) for url, results in per_page_results if results[i].inherited_from is None]
         worst = min((c.status for _, c in per_page), key=SEVERITY.index)
         affected = [url for url, c in per_page if c.status is worst]
         summary = (f"{worst.value} on {len(affected)} of {len(per_page)} page(s)." if len(per_page) > 1

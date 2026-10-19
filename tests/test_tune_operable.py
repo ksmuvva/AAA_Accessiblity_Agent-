@@ -8,7 +8,7 @@ import threading
 
 from audit_helpers import FIXTURES, found, judge
 
-from agent_access.agent_tools.browser_tools import open_url
+from agent_access.agent_tools.browser_tools import load_html_content, open_url
 from agent_access.context import AuditContext
 from agent_access.models import Status
 from agent_access.probes import collect
@@ -263,3 +263,20 @@ def test_a_black_or_red_focus_outline_is_an_indicator():
             + "".join(f'<a id="{k}" href="#{k}">{k.title()}</a>' for k in rings) + "</main></html>")
     audit = judge(html, "2.4.7")
     assert {s for f in found(audit, "2.4.7").get(Status.FAIL, []) for s in f.selectors} == {"#clear"}
+
+
+def test_the_tab_walk_starts_at_the_top_after_a_click_left_focus_on_the_last_control():
+    """In a state labelled after clicking the last button, Tab went on from that button, reached nothing, and ten
+    keyboard criteria read 'no focus stops' there and differed from the page. A positive tabindex still goes first."""
+    async def scenario():
+        async with AuditContext(screen_reader="emulated") as audit:
+            await load_html_content(audit, '<html lang="en"><body><main><a href="#a">One</a><input aria-label="Two">'
+                                    '<button id="last" onclick="this.after(\'Shown.\')">Show</button>'
+                                    '<button tabindex="1">Help</button></main></body></html>', "p")
+            page_walk = (await collect(audit, "keyboard")).data["focus_order"]
+            await (await audit.page()).click("#last")
+            audit.set_current("p [shown]")
+            return page_walk, (await collect(audit, "keyboard")).data["focus_order"]
+
+    page_walk, state_walk = asyncio.run(scenario())
+    assert page_walk == ["button 'Help'", "a 'One'", "input 'Two'", "button 'Show'"] and state_walk == page_walk

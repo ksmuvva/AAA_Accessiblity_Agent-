@@ -7,9 +7,11 @@ recorded a judgement for it, whatever its automated check said (needs review, pa
 from agent_access.context import AuditContext
 from agent_access.models import Finding, Judgement, Status
 from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
-from agent_access.agent_tools.report_tools import add_manual_finding, add_manual_findings, compile_report
+from agent_access.agent_tools.report_tools import (STATE_CRITERIA, add_manual_finding, add_manual_findings,
+                                                   compile_report, compile_site_report)
 from agent_access.probes import ProbeResult
 from agent_access.rules import REGISTRY
+from agent_access.team.reviewer import needs_review_check
 
 NOTHING_REVEALED = ProbeResult({"results": []})  # the disclosures probe ran: no control revealed content
 
@@ -185,3 +187,66 @@ def test_not_applicable_aggregation():
 def test_report_covers_the_target_level():
     assert len(compile_report(fresh_audit("A")).criteria) == 31
     assert len(compile_report(fresh_audit("AAA")).criteria) == 86
+
+
+STATE = "page [error shown]"
+
+
+def with_state(changed: str = "1.4.3") -> AuditContext:
+    """The swept page and a state labelled on it whose checks all found the same, except `changed` (new text)."""
+    audit = swept()
+    audit.set_current(STATE)
+    for tool in REGISTRY.values():
+        audit.mark_attempted(tool.name)
+        f = automated(tool.criterion, Status.PASS).model_copy(update={"page_url": STATE})
+        audit.add_findings([f.model_copy(update={"description": "12 text elements"}) if tool.criterion == changed else f])
+    return audit
+
+
+def test_a_state_owes_only_what_it_changed_and_what_only_a_state_shows():
+    """booking_2's two explored states each owed all 55 criteria again and spent the budget; most were unchanged."""
+    audit = with_state()
+    items = open_items(audit, STATE)
+    assert {i["criterion"] for i in items["open"]} == {"1.4.3", *STATE_CRITERIA}
+    assert items["inherited"] == len(audit.target_rules()) - 1 - len(STATE_CRITERIA)
+    assert open_items(audit, "page")["open_count"] == len(audit.target_rules())   # the page itself still owes everything
+    add_manual_finding(audit, "2.4.2", "fail", "The title didn't change.", "Title 'Book' over an error.")
+    after = open_items(audit, STATE)   # an agent's judgement in the state makes it the state's own: no longer inherited
+    assert after["inherited"] == items["inherited"] - 1 and "2.4.2" not in {i["criterion"] for i in after["open"]}
+    own = next(c for c in compile_report(audit, STATE).criteria if c.wcag_criterion == "2.4.2")
+    assert own.inherited_from is None and any(f.evidence == "Title 'Book' over an error." for f in own.findings)
+
+
+def test_an_inherited_criterion_reports_the_pages_result_once():
+    audit = with_state()
+    with audit.at_page("page"):
+        add_manual_finding(audit, "1.1.1", "pass", "Alt text is meaningful.", "The logo's alt is 'Northline Rail'.")
+    audit.findings[-1].review_verdict = "confirmed"
+    state = next(c for c in compile_report(audit, STATE).criteria if c.wcag_criterion == "1.1.1")
+    assert state.status is Status.PASS and state.inherited_from == "page" and not state.findings
+    site = {c.wcag_criterion: c for c in compile_site_report(audit).criteria}
+    assert site["1.1.1"].status is Status.PASS and site["1.1.1"].summary == "Passed: an auditor's judgement, confirmed by the reviewer."
+    assert site["1.4.3"].summary == "needs_review on 2 of 2 page(s)."   # the state changed it: both count
+
+
+def test_a_states_measured_failure_its_page_also_has_is_reviewed_once():
+    audit = with_state()
+    fails = []
+    for key in ("page", STATE):
+        fails.append(automated("1.1.1", Status.FAIL).model_copy(update={"page_url": key, "description": "Missing alt"}))
+        audit.replace_findings(key, None, [fails[-1]], "check_non_text_content")
+    assert needs_review_check(audit, fails[0]) and not needs_review_check(audit, fails[1])
+    fails[0].original_status, fails[0].status = Status.FAIL, Status.NEEDS_REVIEW   # the reviewer doubted it on the page
+    assert not needs_review_check(audit, fails[1])   # still the same measurement: the page's review stands for both
+
+
+def test_a_state_owes_a_judgement_whose_quoted_content_changed_but_not_a_measurement_whose_timing_did():
+    """Opening a panel adds headings that 2.4.6 quotes only in its evidence; 2.3.1's evidence is a frame rate."""
+    audit = with_state()
+    for f in audit.findings_for(STATE):
+        if f.wcag_criterion == "2.4.6":
+            f.evidence = "Headings: Account settings | Alerts"
+        elif f.wcag_criterion == "2.3.1":
+            f.evidence = "38 frames at 18.5 fps"
+    owed = {i["criterion"] for i in open_items(audit, STATE)["open"]}
+    assert "2.4.6" in owed and "2.3.1" not in owed

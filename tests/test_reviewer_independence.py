@@ -50,10 +50,10 @@ def test_an_agent_not_applicable_is_reviewed_blind_and_an_automated_one_is_not_r
     for criterion in ("3.2.2", "3.3.2"):                    # a measured rule and a judgement rule
         f = finding(criterion, Status.NOT_APPLICABLE)
         brief = _brief(audit, f)
-        assert needs_review_check(f) and is_blind(f)
+        assert needs_review_check(audit, f) and is_blind(f)
         assert brief["blind"] and "description" not in brief and "evidence" not in brief
         assert brief["question"] == list(audit.catalogue.get(criterion).manual_checks)
-    assert not needs_review_check(finding("3.2.2", Status.NOT_APPLICABLE, source="custom"))   # measured: not judged
+    assert not needs_review_check(audit, finding("3.2.2", Status.NOT_APPLICABLE, source="custom"))   # measured: not judged
     assert "A \"not_applicable\" item" in REVIEWER_INSTRUCTIONS and "a button opens" in REVIEWER_INSTRUCTIONS
 
 

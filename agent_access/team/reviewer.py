@@ -21,6 +21,7 @@ from openai import APIError
 
 from agent_access.team.runtime import run_config, settings
 from agent_access.agent_tools import INSPECTION_TOOLS
+from agent_access.agent_tools.report_tools import inherited
 from agent_access.agent_tools.verify_tools import cited_scripts, evaluate_js
 from agent_access.context import AuditContext
 from agent_access.context import is_state_key
@@ -111,9 +112,12 @@ def build_reviewer(model: str | Model | None = None) -> Agent[AuditContext]:
     return apply_guardrails(reviewer)
 
 
-def needs_review_check(f: Finding) -> bool:
-    """Failures, and passes and not-applicable verdicts an agent judged, are re-checked before they reach the report."""
-    return f.status is Status.FAIL or (f.source == "agent" and f.status in (Status.PASS, Status.NOT_APPLICABLE))
+def needs_review_check(audit: AuditContext, f: Finding) -> bool:
+    """Failures, and passes and not-applicable verdicts an agent judged, are re-checked before they reach the report.
+    A state's measured failure that its page also has is reviewed there (report_tools.inherited)."""
+    if f.source == "agent":
+        return f.status in (Status.FAIL, Status.PASS, Status.NOT_APPLICABLE)
+    return f.status is Status.FAIL and not inherited(audit, f.page_url, f.wcag_criterion)
 
 
 MAX_DETAILS_CHARS = 700
@@ -241,7 +245,7 @@ async def review_findings(
     errors: list[str] = []
     for page_key in list(audit.pages) if pages is None else pages:
         # A finding is reviewed once; one whose batch failed (not_reviewed) gets another chance.
-        items = [f for f in audit.findings_for(page_key) if needs_review_check(f) and f.review_verdict in (None, "not_reviewed")]
+        items = [f for f in audit.findings_for(page_key) if needs_review_check(audit, f) and f.review_verdict in (None, "not_reviewed")]
         target = {r.wcag_criterion for r in audit.target_rules()}
         items.sort(key=lambda f: f.wcag_criterion not in target)   # the target's results first, if the budget runs out
         if not items:

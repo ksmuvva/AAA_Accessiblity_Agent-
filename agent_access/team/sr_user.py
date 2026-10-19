@@ -18,7 +18,7 @@ from agents import Agent, RunContextWrapper, Runner, function_tool
 from agents.models.interface import Model
 from pydantic import BaseModel, Field
 
-from agent_access.agent_tools.browser_tools import click, fill, press
+from agent_access.agent_tools.browser_tools import click, fill, label_state, press
 from agent_access.agent_tools.report_tools import add_manual_finding
 from agent_access.context import AuditContext, call_tool
 from agent_access.intent import irreversible
@@ -171,7 +171,9 @@ async def sr_type(audit: AuditContext, state: dict, text: str) -> dict:
 
 
 async def sr_record_stuck(audit: AuditContext, state: dict, criterion: str, description: str) -> dict:
-    """A fail with the end of the transcript as evidence and, as its selector, the control under the cursor."""
+    """A fail with the end of the transcript as evidence and, as its selector, the control under the cursor. When the
+    agent's keys changed the page, that state is labelled first, so the fail belongs to it and the reviewer can rebuild
+    it by replaying them."""
     page, items = await audit.page(), await _items(audit)
     selectors = []
     if 0 <= state["at"] < len(items) and items[state["at"]][0] != "text":
@@ -179,6 +181,8 @@ async def sr_record_stuck(audit: AuditContext, state: dict, criterion: str, desc
             selectors = [await _under_cursor(page, items, state["at"]).evaluate(js("forms/css_path"), timeout=2000)]
         except Exception:
             pass   # the line has no element to point at; the transcript still shows what was heard
+    if audit.current_url in audit.dirty:
+        await label_state(audit, "screen reader")
     evidence = "Screen reader transcript (emulated, NVDA-style):\n" + scrub("\n".join(state["transcript"][-TRANSCRIPT_LINES:]))[0]
     return add_manual_finding(audit, criterion, "fail", description, evidence, selectors)
 

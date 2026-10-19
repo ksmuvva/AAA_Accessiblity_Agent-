@@ -20,7 +20,7 @@ from agent_access.team.handoffs import HandoffBrief, brief_section, report_of, r
 from agent_access.team.runtime import run_config, settings
 from agent_access.catalogue.catalogue import LEVEL_ORDER
 from agent_access.agent_tools import INSPECTION_TOOLS
-from agent_access.agent_tools.report_tools import record_finding, record_findings
+from agent_access.agent_tools.report_tools import inherited, record_finding, record_findings
 from agent_access.agent_tools.verify_tools import evaluate_js
 from agent_access.context import AuditContext, no_page, run_agents
 from agent_access.engine import criterion_tools_for, list_forms, test_disclosures, test_forms, test_hover_content
@@ -157,7 +157,8 @@ def unjudged_criteria(audit: AuditContext, domain: str, page_key: str) -> list[s
     findings = audit.findings_for(page_key)
     return [f"{tool.criterion} {tool.title}" for tool in TOOLS_IN_ORDER
             if tool.domain == domain and LEVEL_ORDER[tool.level] <= target
-            and is_open([f for f in findings if f.wcag_criterion == tool.criterion])]
+            and is_open([f for f in findings if f.wcag_criterion == tool.criterion])
+            and not inherited(audit, page_key, tool.criterion)]
 
 
 LEFTOVER_NOTE = ("These stay open for you: get_criterion each one and judge it with record_findings, or call the "
