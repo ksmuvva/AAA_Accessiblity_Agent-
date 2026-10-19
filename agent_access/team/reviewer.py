@@ -276,5 +276,6 @@ async def review_findings(
                     check_verdict_ids(audit, batch, result.final_output)
                     break
                 log += [e for e, f in zip(entries, batch) if f.id in answered]
+                check_verdict_ids(audit, [f for f in batch if f.id in answered], result.final_output)   # unknown ids only
                 batch = [f for f in batch if f.id not in answered]
     return log, errors

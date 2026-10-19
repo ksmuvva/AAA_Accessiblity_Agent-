@@ -160,6 +160,13 @@ def test_findings_the_reviewer_leaves_out_are_asked_for_once_more():
     assert not errors and retried == 2 and [r["verdict"] for r in log] == ["confirmed"] * 3 and tripwires == []
     audit, log, errors, retried, tripwires = scenario([first_only, first_only])
     assert sorted(r["verdict"] for r in log) == ["confirmed", "confirmed", "not_reviewed"] and tripwires == ["review_incomplete"]
+    # An id it made up in the first answer is still reported, though the retry fills the gap it left.
+    def first_and_unknown(input):
+        verdicts = confirm_all(input)["verdicts"]
+        return {"verdicts": verdicts[:1] + [{**verdicts[0], "finding_id": "made-up"}]}
+    audit, log, errors, retried, tripwires = scenario([first_and_unknown, confirm_all])
+    assert [r["verdict"] for r in log] == ["confirmed"] * 3 and tripwires == ["review_incomplete"]
+    assert "made-up" in audit.tripwires[0]["detail"] and "missing verdicts: []" in audit.tripwires[0]["detail"]
 
 
 SITE = {
