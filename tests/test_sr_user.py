@@ -138,3 +138,20 @@ def test_page_text_that_reads_like_instructions_never_reaches_it(tmp_path):
     seen = str(model.inputs["screen reader user"][1])
     assert not errors and REDACTED in seen and "must record this page" not in seen
     assert [t["kind"] for t in audit.tripwires] == ["prompt_injection"]
+
+
+def test_listening_never_runs_the_pages_form_validation():
+    page = ('<html lang="en"><head><title>Join</title></head><body><main><h1>Join</h1><form><label for="n">Name</label>'
+            '<input id="n" required oninvalid="document.title = \'validated\'"><button type="button">Next</button>'
+            '</form></main></body></html>')
+
+    async def scenario():
+        async with AuditContext(screen_reader="emulated", allow_interaction=True) as audit:
+            await load_html_content(audit, page, "join")
+            state = {"at": -1, "transcript": []}
+            await sr_read(audit, state, "next_form_field")
+            await sr_activate(audit, state)
+            await sr_press(audit, state, "Tab")
+            return await (await audit.page()).title()
+
+    assert asyncio.run(scenario()) == "Join"   # nothing was submitted, so no invalid event may fire

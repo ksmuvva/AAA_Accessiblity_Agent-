@@ -103,9 +103,10 @@ async def sr_read(audit: AuditContext, state: dict, command: str) -> dict:
 
 
 async def _live(page) -> list[str]:
-    """Live-region text a screen reader would speak, by the 4.1.3 probe's rule (forms/error_state.js): visible, not
-    under aria-hidden, not aria-live=off, and known before its text arrived unless it is a role="alert"."""
-    return (await page.evaluate(js("forms/error_state"), None))["alerts"]
+    """Live-region text a screen reader would speak, by the 4.1.3 probe's rule (helpers.js heardLiveText): visible,
+    not under aria-hidden, not aria-live=off, and known before its text arrived unless it is a role="alert". It reads
+    only the regions: the probe's validity checks would fire the page's invalid handlers."""
+    return await page.evaluate(js("forms/live_text"))
 
 
 async def _announce(audit: AuditContext, state: dict, live_before: list[str], url_before: str) -> str:
