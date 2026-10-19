@@ -29,6 +29,7 @@ from agent_access.team.summarizer import write_summary
 from agent_access.agent_tools.browser_tools import open_url, page_fingerprint, same_site_links
 from agent_access.context import AuditContext, base_page_key, is_state_key
 from agent_access.models import AuditSummary, PagePick, SiteReport
+from agent_access.sampling import wcag_em_sample
 from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
 from agent_access.agent_tools.report_tools import compile_site_report
 from agent_access.probes.screen_reader import ensure_nvda, use_nvda
@@ -69,6 +70,8 @@ class AuditOutcome:
     memory: dict | None = None
     # Agent-written scripts (evaluate_js), so a reader can see and re-run the evidence a judgement cites.
     scripts: list[dict] = field(default_factory=list)
+    # The WCAG-EM sample (sampling.wcag_em_sample) when the pages were sampled.
+    sample: dict | None = None
 
 
 def _err(stage: str, exc: Exception) -> str:
@@ -246,12 +249,14 @@ async def run_audit(
     review: bool = True,
     progress=print,
     mode: str = "code",
+    sample_seed: int | None = None,
 ) -> AuditOutcome:
     """Audit the preloaded page (e.g. --html-file), or `start_url` plus up to `pages - 1` more same-site pages.
 
     `mode="code"` is the fixed per-page flow below. `mode="agent"` (the CLI default) hands the run to the planner agent
     (team/planner.py) once the start page is open and measured; code floors still apply there. `max_turns` caps each
-    lead run in code mode, not the whole audit.
+    lead run in code mode, not the whole audit. With `sample_seed`, the pages are a WCAG-EM sample drawn with it
+    (sampling.py) instead of the page picker's: up to `pages` in code mode, the budget's page cap in agent mode.
     """
     # Each model comes from the argument, then the environment. The reviewer falls back to the auditors' model,
     # and that to the SDK default (None).
@@ -287,7 +292,7 @@ async def run_audit(
         from agent_access.team.planner import run_agentic_audit  # here, not at module level: planner imports this module
 
         agentic = await run_agentic_audit(audit, pages=pages, process=process, model=model, reviewer_model=reviewer_model,
-                                          review=review, progress=progress, lead_max_turns=max_turns)
+                                          review=review, progress=progress, lead_max_turns=max_turns, sample_seed=sample_seed)
         agentic.errors = outcome.errors + agentic.errors
         return _finish(audit, agentic)
 
@@ -295,7 +300,11 @@ async def run_audit(
     if first is not None:
         queue: list[str] = [first]
         if pages > 1 and not first.startswith(("about:", "file:")):
-            queue += await pick_pages(audit, pages - 1, model, outcome)
+            if sample_seed is None:
+                queue += await pick_pages(audit, pages - 1, model, outcome)
+            else:
+                outcome.sample = await wcag_em_sample(audit, pages, sample_seed)
+                queue += outcome.sample["pages"][1:]
         multi = len(queue) > 1
         audited: set[str] = set()
         for i, target in enumerate(queue):

@@ -192,6 +192,7 @@ class AuditContext:
             else:
                 self._playwright = await async_playwright().start()
                 self._browser = await self._playwright.chromium.launch(headless=self.headless)
+                self.engines["browser"] = f"Chromium {self._browser.version}"   # the accessibility support baseline
                 # bypass_csp lets us inject axe-core into pages with strict Content-Security-Policy.
                 self._context = await self._browser.new_context(viewport=DEFAULT_VIEWPORT, bypass_csp=True,
                                                                 service_workers="block")
