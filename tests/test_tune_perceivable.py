@@ -299,3 +299,8 @@ def test_an_instruction_that_points_at_a_control_only_by_its_shape_fails():
     assert by_shape[Status.FAIL][0].evidence == "Press the round button below to continue"
     assert Status.FAIL not in named and Status.NEEDS_REVIEW in named
     assert Status.FAIL not in by_place and Status.NEEDS_REVIEW in by_place
+    # Codex review on #36: a name in another case, and an icon button's accessible name, also name the control.
+    shouting = found(judge(page.format("Press the round CONTINUE button below."), "1.3.3"), "1.3.3")
+    icon = found(judge(page.format("Press the round Continue button.").replace(
+        "<button>Continue</button>", '<button aria-label="Continue"><svg width="9" height="9"></svg></button>'), "1.3.3"), "1.3.3")
+    assert Status.FAIL not in shouting and Status.FAIL not in icon
