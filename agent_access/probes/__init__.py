@@ -66,7 +66,7 @@ async def collect(audit: AuditContext, name: str) -> ProbeResult:
 PROBE_ORDER = [
     "axe", "page", "instrumentation", "nav", "media", "motion", "contrast",
     "text_spacing", "reflow", "targets", "keyboard", "zoom", "orientation", "flashing", "screen_reader",
-    "skip_link", "sliders", "hover", "disclosures", "shortcuts", "pointer", "forms",
+    "skip_link", "sliders", "hover", "disclosures", "shortcuts", "pointer", "forms", "timeouts",
 ]
 
 

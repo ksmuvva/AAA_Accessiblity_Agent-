@@ -120,7 +120,19 @@ def _timing(ctx: Ctx) -> tuple[list, list]:
     return long_timers, countdown
 
 
-TIMING_USES = ("instrumentation", "page")
+TIMING_USES = ("instrumentation", "page", "timeouts")
+
+
+def _idle(ctx: Ctx) -> list[str]:
+    """What the page did left idle on a faked clock, one line per moment (the timeouts probe)."""
+    out = []
+    for e in ctx.data("timeouts").get("events", []):
+        what = [f"text '{w}'" for w in e["warnings"]] + [f"dialog '{d}'" for d in e["dialogs"]]
+        what += [f"controls {', '.join(e['controls'])}"] if e["controls"] else []
+        what += [f"went to {e['navigated_to']}"] if e["navigated_to"] else []
+        m = e["idle_minutes"]
+        out.append((f"after {m} min" if m < 60 else f"after {m // 60} h") + " idle: " + "; ".join(what))
+    return out
 
 
 def _countdown_caveat(ctx: Ctx) -> str | None:
@@ -135,11 +147,13 @@ def check_timing_adjustable(ctx: Ctx) -> None:
     """Time limits must be adjustable (turn off, adjust, or extend), unless real-time or essential."""
     ctx.axe()
     long_timers, countdown = _timing(ctx)
-    if long_timers or countdown:
+    if (idle := _idle(ctx)) or long_timers or countdown:
         ctx.review("Possible time limit: check users can turn it off, adjust, or extend it.",
-                   evidence="; ".join([f"timer {t['ms'] // 1000}s" for t in long_timers[:4]] + countdown[:4]))
+                   evidence="; ".join(idle[:4] + [f"timer {t['ms'] // 1000}s" for t in long_timers[:4]] + countdown[:4]))
     elif not ctx.findings:
-        ctx.passed("No time limits detected (no long timers, countdowns, or meta refresh).", evidence=_countdown_caveat(ctx))
+        ctx.passed("No time limits detected (no long timers, countdowns, or meta refresh"
+                   + (", and nothing happened in 20 hours idle on a faked clock)." if "events" in ctx.data("timeouts") else ")."),
+                   evidence=_countdown_caveat(ctx))
 
 
 @wcag_tool("2.2.2", "check_pause_stop_hide", domain="media", tech=(PW,), uses=("media", "page", "instrumentation"), judgement=True)
@@ -171,8 +185,9 @@ def check_pause_stop_hide(ctx: Ctx) -> None:
 def check_no_timing(ctx: Ctx) -> None:
     """At AAA, timing must not be part of the activity at all (except real-time events and media)."""
     long_timers, countdown = _timing(ctx)
-    if long_timers or countdown:
-        ctx.review("Timing appears to be part of the activity.", evidence="; ".join(countdown[:4]) or f"{len(long_timers)} long timer(s)")
+    if (idle := _idle(ctx)) or long_timers or countdown:
+        ctx.review("Timing appears to be part of the activity.",
+                   evidence="; ".join(idle[:4] + countdown[:4]) or f"{len(long_timers)} long timer(s)")
     else:
         ctx.passed("No timing detected.", evidence=_countdown_caveat(ctx))
 
@@ -193,11 +208,15 @@ def check_interruptions(ctx: Ctx) -> None:
         ctx.passed("No interruptions detected on load.")
 
 
-@wcag_tool("2.2.5", "check_reauthentication_data_preservation", domain="forms", tech=(PW,), uses=("page",), judgement=True)
+@wcag_tool("2.2.5", "check_reauthentication_data_preservation", domain="forms", tech=(PW,), uses=("page", "timeouts"),
+           judgement=True)
 def check_reauthentication_data_preservation(ctx: Ctx) -> None:
     """After a session expires and the user signs in again, their data must be preserved."""
     passwords = ctx.data("page").get("password_fields", [])
-    if not passwords:
+    if left := [line for line in _idle(ctx) if "went to" in line]:
+        ctx.review("Left idle, the page navigated away; if that ends the session, check work in progress survives "
+                   "signing in again.", evidence=left[0])
+    elif not passwords:
         ctx.not_applicable("No sign-in on this page.")
     else:
         ctx.review("Check that work in progress survives re-authentication after a session timeout.", [p["selector"] for p in passwords])
@@ -210,8 +229,10 @@ def check_timeout_warnings(ctx: Ctx) -> None:
         ctx.not_applicable("No forms that collect data.")
         return
     long_timers, countdown = _timing(ctx)
+    idle = _idle(ctx)
     ctx.review("Check users are told about any inactivity timeout that loses data."
-               + (" Timeout signals found." if long_timers or countdown else " No timeout signals found."))
+               + (" Timeout signals found." if idle or long_timers or countdown else " No timeout signals found."),
+               evidence="; ".join(idle[:4]) or None)
 
 
 # ---------------------------------------------------------------- 2.3 Seizures and Physical Reactions
