@@ -69,7 +69,7 @@ PAGE_CONTENT_TOOLS = {
     "get_page_outline", "get_accessibility_tree", "inspect_element", "get_criterion", "run_checks", "run_all_checks",
     "get_recorded_findings", "list_forms", "test_forms", "test_hover_content", "test_disclosures", "label_page_state",
     "click_element", "fill_field", "press_key", "run_probe", "evaluate_js", "verify_finding", "discover_links",
-    "return_to_page", "open_page", "get_open_items", "recall",
+    "return_to_page", "open_page", "get_open_items", "recall", "sr_read", "sr_activate", "sr_press", "sr_type",
 }
 
 

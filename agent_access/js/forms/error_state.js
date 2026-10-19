@@ -6,7 +6,7 @@ const form = root.tagName === 'FORM' ? root : null;
 // A screen reader announces changes to live regions it already knew and, of regions inserted with their text, only
 // role="alert"; hidden ones never. The first call (before a submission) marks the regions that are there, and
 // watches for regions inserted still empty (filled in a later task), which are known before their text arrives.
-const LIVE = '[role="alert"], [aria-live="assertive"], [aria-live="polite"], [role="status"]';
+const LIVE = '[role="alert"]:not([aria-live="off"]), [aria-live="assertive"], [aria-live="polite"], [role="status"]:not([aria-live="off"])';
 const first = !document.__a11yLiveMarked;
 document.__a11yLiveMarked = true;
 if (first) {
