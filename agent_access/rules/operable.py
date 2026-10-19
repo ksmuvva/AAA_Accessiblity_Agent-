@@ -352,7 +352,7 @@ def check_page_title(ctx: Ctx) -> None:
     ctx.axe()
     title = ctx.data("page").get("title", "")
     if title and GENERIC_TITLE.fullmatch(title):
-        ctx.fail(f"The title '{title}' is generic.")
+        ctx.fail(f"The title '{title}' is generic: it doesn't describe the page's topic or purpose (WCAG failure F25).")
     elif title:
         ctx.review(f"Check the title '{title}' describes this page.")
 
@@ -406,7 +406,9 @@ def check_link_purpose_in_context(ctx: Ctx) -> None:
     for group in [g for g in same.values() if len({l["href"] for l in g}) > 1]:
         ctx.fail(f"{len(group)} '{group[0]['name']}' links go to different places, and nothing in their context tells "
                  "them apart: each is alone in its element, " + (f"under the same heading '{group[0]['heading']}'."
-                                                                 if group[0]["heading"] else "with no heading before it."),
+                                                                 if group[0]["heading"] else "with no heading before it.")
+                 + " WCAG counts only a link's sentence, paragraph, list item, table cell or preceding heading as its "
+                   "context, not a nearby paragraph.",
                  [l["selector"] for l in group], "; ".join(l["href"] for l in group[:5]))
     if vague := _vague_links(ctx):
         ctx.review(f"{len(vague)} link(s) have vague text; check the surrounding context makes them clear.",
