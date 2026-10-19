@@ -53,8 +53,15 @@ const paragraphs = [...document.querySelectorAll('p, li, td, dd, blockquote')].f
     line_height: s.lineHeight === 'normal' ? 1.2 : Math.round(parseFloat(s.lineHeight) / fp * 100) / 100,
     text_align: s.textAlign, margin_bottom_ratio: Math.round(parseFloat(s.marginBottom) / fp * 100) / 100 };
 });
-const passages = all.filter((el) => ownText(el) && isVisible(el) && text(el).length >= 20 && !el.querySelector('p, div, li'))
-  .slice(0, 200).map((el) => ({ selector: cssPath(el), text: text(el).slice(0, 200), lang: el.closest('[lang]')?.getAttribute('lang') || null }));
+// The text that inherits `el`'s language: without descendants marked with a lang of their own (3.1.1, 3.1.2).
+const inherited = (el) => {
+  if (!el.querySelector('[lang]')) return text(el);
+  const copy = el.cloneNode(true);
+  copy.querySelectorAll('[lang], script, style, noscript, template').forEach((d) => d.remove());
+  return (copy.textContent || '').replace(/\s+/g, ' ').trim();
+};
+const passages = all.filter((el) => ownText(el) && isVisible(el) && inherited(el).length >= 20 && !el.querySelector('p, div, li'))
+  .slice(0, 200).map((el) => ({ selector: cssPath(el), text: inherited(el).slice(0, 200), lang: el.closest('[lang]')?.getAttribute('lang') || null }));
 const headings = [...document.querySelectorAll(headingSel)].filter(isVisible).length;
 const main = document.querySelector('main, [role="main"]') || document.body;
 // Tables (1.3.1): data tables need header cells; role=presentation/none marks a layout table and is skipped.
@@ -114,6 +121,7 @@ return {
   title: document.title,
   page_lang: document.documentElement.getAttribute('lang'),
   main_text: text(main).slice(0, 30000),
+  lang_sample: inherited(main).slice(0, 1500),
   body_text: text(document.body).slice(0, 30000),
   word_count: words(text(main)),
   links, images, background_images: bgImages, fake_headings: fakeHeadings, paragraphs, passages,

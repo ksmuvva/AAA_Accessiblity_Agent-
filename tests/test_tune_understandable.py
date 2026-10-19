@@ -165,3 +165,22 @@ def test_a_date_field_with_no_stated_format_goes_to_the_agent():
     assert not flagged('<label for="d">Date</label><input id="d" type="text" aria-describedby="h"><p id="h">For example, 27 3 2026</p>')
     assert not flagged('<label for="d">Date</label><input id="d" type="text" placeholder="05/11/2026">')
     assert not flagged('<label for="d">Date</label><input id="d" type="date">')
+
+
+def test_a_passage_in_another_latin_language_is_measured():
+    """French in an English page, with no lang of its own, used to be left to the agents (same script). Language
+    identification fails it when the passage is long enough and the detector is sure; English text and a short French
+    phrase stay with the judgement."""
+    from audit_helpers import found
+
+    def fails(body, lang="en", criterion="3.1.2"):
+        html = f'<!doctype html><html lang="{lang}"><head><title>Shop</title></head><body><main><h1>Shop</h1>{body}</main></body></html>'
+        return [f for f in found(judge(html, criterion), criterion).get(Status.FAIL, []) if "identification" in f.description]
+    french = "<p>Bonjour à tous, nous sommes ravis de vous accueillir dans notre nouvelle boutique en ligne.</p>"
+    english = "<p>Our annual report for 2025 is now available, with results for every store and every region.</p>"
+    assert fails(english + french) and not fails(english) and not fails(english + "<p>Bonjour à tous !</p>")
+    assert not fails(english + french.replace("<p>", '<p lang="fr">'))
+    assert fails(french * 3, criterion="3.1.1") and not fails(english * 3, criterion="3.1.1")
+    # Text a descendant marks with its own lang is not the parent's: a marked quotation fails neither criterion.
+    quoted = french.replace("<p>", '<p>Translation: <span lang="fr">').replace("</p>", "</span></p>")
+    assert not fails(english + quoted) and not fails(french.replace("<p>", '<p lang="fr">') * 3 + english, criterion="3.1.1")

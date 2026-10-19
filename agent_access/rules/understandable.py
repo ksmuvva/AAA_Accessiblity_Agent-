@@ -6,6 +6,8 @@ import re
 from collections import Counter
 from urllib.parse import urldefrag
 
+from langdetect import DetectorFactory, LangDetectException, detect_langs
+
 from agent_access.probes.page import primary_nav
 from agent_access.rules import AXE, PW, SR, Ctx, wcag_tool
 from agent_access.rules.common import (
@@ -30,6 +32,27 @@ DATE_FIELD = re.compile(r"\b(date|dob|birth\w*|bday|expir\w*|cc-exp\w*)\b", re.I
 FORMAT_HINT = re.compile(r"\b(dd|mm|yy|yyyy|day|month|year|for example|e\.?g)\b|\d{1,2}\s*[/.-]\s*\d{1,2}", re.I)
 STEPS = re.compile(r"\bstep\s*\d+\s*(of|/)\s*\d+\b", re.I)
 MIN_FOREIGN_PASSAGE = 40  # characters: below this, text in another script is probably a name, not a passage
+MIN_DETECT_CHARS = 80     # below this, statistical language identification is unreliable
+DetectorFactory.seed = 0  # langdetect samples at random; a fixed seed makes its answer repeatable
+# Languages the detector can't reliably tell apart: a detection within one of these groups is no mismatch.
+CLOSE = [{"da", "no", "nb", "nn"}, {"hr", "sr", "bs"}, {"id", "ms", "in"}, {"he", "iw"}]
+
+
+def _language(text: str) -> str | None:
+    """The language a passage is written in (e.g. 'fr'), when the detector is at least 95% sure; else None."""
+    if len(text.strip()) < MIN_DETECT_CHARS:
+        return None
+    try:
+        best = detect_langs(text)[0]
+    except LangDetectException:
+        return None
+    return best.lang.split("-")[0] if best.prob >= 0.95 else None
+
+
+def _other_language(text: str, lang: str | None) -> str | None:
+    """The detected language of `text` when it confidently differs from `lang` (outside close groups)."""
+    declared, found = (lang or "").lower().split("-")[0], _language(text)
+    return found if declared and found and found != declared and not any({found, declared} <= g for g in CLOSE) else None
 
 
 def _script(text: str) -> str | None:
@@ -83,11 +106,14 @@ def check_page_language(ctx: Ctx) -> None:
     """The page's default language must be set (lang) and match its content."""
     ctx.axe()
     page = ctx.data("page")
-    lang, sample = page.get("page_lang"), page.get("main_text", "")[:1500]
+    lang, sample = page.get("page_lang"), page.get("lang_sample", page.get("main_text", ""))[:1500]
     detected = _script(sample)
     expected = _expected_script(lang)
     if lang and detected and expected and detected != expected:
         ctx.fail(f"The page is declared lang='{lang}' ({expected} script) but its text is mostly {detected}.")
+    elif found := _other_language(sample, lang):
+        ctx.fail(f"The page is declared lang='{lang}' but its text is in '{found}' (language identification).",
+                 evidence=sample[:200])
     elif lang:
         ctx.review(f"Check lang='{lang}' matches the page's main language.", evidence=sample[:200])
 
@@ -110,6 +136,13 @@ def check_language_of_parts(ctx: Ctx) -> None:
         ctx.review(f"{len(short)} short text(s) are in a different script from their declared language; inspect_element "
                    "each: a brand or product name needs no lang, a phrase or sentence does.",
                    [p["selector"] for p in short], "; ".join(f"'{p['text'][:30]}'" for p in short[:5]))
+    # Same script, another language (French in an English page): language identification on passages long enough.
+    misread = [(p, found) for p in page.get("passages", []) if p not in wrong
+               and (found := _other_language(p["text"], p["lang"]))]
+    if misread:
+        ctx.fail(f"{len(misread)} passage(s) are in another language than the lang they inherit (language identification).",
+                 [p["selector"] for p, _ in misread],
+                 "; ".join(f"lang={p['lang']!r} but '{found}': '{p['text'][:40]}'" for p, found in misread[:5]))
     marked = sorted({p["lang"] for p in page.get("passages", []) if p["lang"] and p["lang"] != page.get("page_lang")})
     ctx.review("Check passages in other Latin-script languages are marked with lang."
                + (f" Languages already marked: {', '.join(marked)}." if marked else ""))
