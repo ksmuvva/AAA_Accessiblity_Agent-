@@ -185,6 +185,17 @@ def test_generic_field_labels_fail_headings_and_labels():
     assert not fails("Value of the order") and not fails("Monthly limit")
 
 
+def test_focus_rings_that_vanish_in_forced_colours_are_noted():
+    """Forced-colours mode removes box-shadow: a ring drawn only with it may disappear in Windows High Contrast. That
+    is a risk for the agent to check (a detail), not a WCAG failure on its own; an outline survives."""
+    html = ('<!doctype html><html lang="en"><head><title>F</title><style>#a:focus{outline:none;box-shadow:0 0 0 3px blue}'
+            '#b:focus{outline:2px solid blue}</style></head><body><main><h1>F</h1><button id="a">A</button>'
+            '<button id="b">B</button></main></body></html>')
+    audit = judge(html, "2.4.7")
+    assert audit.rule_details[audit.current_url]["check_focus_visible"]["indicator_may_vanish_in_forced_colours"] == ["#a"]
+    assert not found(audit, "2.4.7").get(Status.FAIL)
+
+
 def _rule_on(criterion: str, **probe_data) -> list:
     """Run one rule on synthetic probe data (rules are pure functions over it), without a browser."""
     from agent_access.probes import ProbeResult
