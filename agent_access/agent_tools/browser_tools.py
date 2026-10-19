@@ -7,6 +7,7 @@ import base64
 import ipaddress
 import json
 import re
+from typing import Literal
 from urllib.parse import urldefrag, urlparse
 
 from agents import RunContextWrapper, ToolOutputImage, ToolOutputText, function_tool
@@ -137,8 +138,24 @@ async def inspect(audit: AuditContext, selector: str) -> dict:
     return {"selector": selector, "matches": count, "elements": details, "accessibility_of_first": accessibility}
 
 
-async def screenshot(audit: AuditContext, full_page: bool = False) -> tuple[str, bytes]:
-    image = await (await audit.page()).screenshot(full_page=full_page, type="jpeg", quality=60)
+CONDITIONS = {"none": {}, "forced-colors": {"forced_colors": "active"}, "more-contrast": {"contrast": "more"},
+              "achromatopsia": {"vision": "achromatopsia"}, "deuteranopia": {"vision": "deuteranopia"},
+              "protanopia": {"vision": "protanopia"}, "tritanopia": {"vision": "tritanopia"},
+              "blurred-vision": {"vision": "blurredVision"}, "mobile": {"mobile": True}}
+
+
+async def screenshot(audit: AuditContext, full_page: bool = False, selector: str = "", condition: str = "none") -> tuple[str, bytes]:
+    """The page (or one element) as an image, optionally under a viewing condition that is undone afterwards."""
+    from agent_access.agent_tools.verify_tools import _apply_options, _reset_options  # verify_tools imports the engine
+
+    page, opts = await audit.page(), CONDITIONS[condition]
+    previous = await _apply_options(audit, opts) if opts else {}
+    try:
+        image = await (page.locator(selector).first.screenshot(type="jpeg", quality=60, timeout=5000) if selector
+                       else page.screenshot(full_page=full_page, type="jpeg", quality=60))
+    finally:
+        if opts:
+            await _reset_options(audit, opts, previous)
     shots = audit.output_dir / "screenshots"
     shots.mkdir(parents=True, exist_ok=True)
     path = shots / f"page{audit.pages.index(audit.current_url) + 1}_{len(list(shots.iterdir())) + 1}.jpg"
@@ -379,18 +396,29 @@ async def discover_links(ctx: RunContextWrapper[AuditContext], limit: int) -> st
 
 
 @function_tool
-async def take_screenshot(ctx: RunContextWrapper[AuditContext], full_page: bool) -> list[ToolOutputText | ToolOutputImage] | str:
-    """Take a screenshot of the loaded page so you can visually review it, and save it as evidence.
+async def take_screenshot(ctx: RunContextWrapper[AuditContext], full_page: bool, selector: str = "",
+                          condition: Literal["none", "forced-colors", "more-contrast", "achromatopsia", "deuteranopia",
+                                             "protanopia", "tritanopia", "blurred-vision", "mobile"] = "none",
+                          ) -> list[ToolOutputText | ToolOutputImage] | str:
+    """Take a screenshot of the loaded page, or of one element, so you can visually review it, and save it as evidence.
 
     Use it for visual criteria such as 1.4.1 Use of Color, 1.4.11 Non-text Contrast, and 1.3.3 Sensory Characteristics.
 
     Args:
         full_page: True to capture the whole scrollable page, false for just the visible viewport.
+        selector: Capture only this element (an image, chart or control, to judge its alt text or text in it); "" for
+            the page.
+        condition: View it as a user would: "forced-colors" (Windows High Contrast), "more-contrast", a colour-vision
+            deficiency ("achromatopsia" = no colour), "blurred-vision", "mobile", or "none". Colour judgements from
+            images are unreliable: use this to see what remains, and measure colours with the checks.
     """
     if not ctx.context.has_page():
         return json.dumps(no_page())
     async with ctx.context.lock:
-        path, image = await screenshot(ctx.context, full_page)
+        try:
+            path, image = await screenshot(ctx.context, full_page, selector, condition)
+        except Exception as exc:  # e.g. no element matches the selector
+            return json.dumps({"error": f"No screenshot: {type(exc).__name__}: {str(exc)[:160]}"})
     data_url = "data:image/jpeg;base64," + base64.b64encode(image).decode()
     return [ToolOutputText(text=f"Screenshot saved to {path}"), ToolOutputImage(image_url=data_url, detail="high")]
 

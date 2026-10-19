@@ -344,3 +344,31 @@ def test_viewing_conditions_apply_and_are_undone():
     during, after, grey, colour = asyncio.run(scenario())
     assert during == [True, True, 390, 5, 390] and after == [False, False, 1280, 0, 1280]
     assert grey[0] == grey[1] == grey[2] and colour == (204, 0, 0)
+
+
+def test_a_screenshot_of_one_element_under_a_condition(tmp_path):
+    """take_screenshot can crop to one element and show it as a user with no colour vision sees it; the condition is
+    undone afterwards, and a selector that matches nothing is an error, not a hang."""
+    import io
+
+    from PIL import Image
+
+    from agent_access.agent_tools.browser_tools import screenshot
+
+    async def scenario():
+        async with AuditContext(screen_reader="emulated", output_dir=tmp_path) as audit:
+            await load_html_content(audit, "<html lang='en'><title>x</title><body style='margin:0'>"
+                                           "<div id='chart' style='width:120px;height:60px;background:#c00'></div></body></html>")
+            _, crop = await screenshot(audit, selector="#chart", condition="achromatopsia")
+            _, page = await screenshot(audit)
+            try:
+                await screenshot(audit, selector="#missing")
+                missing = None
+            except Exception as exc:
+                missing = type(exc).__name__
+            return Image.open(io.BytesIO(crop)).convert("RGB"), Image.open(io.BytesIO(page)).convert("RGB"), missing
+
+    crop, page, missing = asyncio.run(scenario())
+    r, g, b = crop.getpixel((60, 30))
+    assert crop.size == (120, 60) and abs(r - g) < 8 and abs(g - b) < 8
+    assert page.getpixel((60, 30))[0] > 150 and missing == "TimeoutError"
