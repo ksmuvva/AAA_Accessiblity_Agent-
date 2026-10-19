@@ -48,5 +48,6 @@ return {
   box_shadow: fs.boxShadow,
   behind: effectiveBg(el.parentElement || el),
   size: { width: Math.round(r.width), height: Math.round(r.height) },
+  at: { x: Math.round(r.left), y: Math.round(r.top) },
   text: (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 80),
 };
