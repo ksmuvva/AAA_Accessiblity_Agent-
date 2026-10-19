@@ -30,6 +30,7 @@ from agent_access.team.summarizer import write_summary
 from agent_access.agent_tools.browser_tools import open_url, page_fingerprint, same_site_links
 from agent_access.context import AuditContext, base_page_key, is_state_key
 from agent_access.models import AuditSummary, PagePick, SiteReport
+from agent_access.documents import check_documents
 from agent_access.sampling import wcag_em_sample
 from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
 from agent_access.agent_tools.report_tools import compile_site_report
@@ -73,6 +74,8 @@ class AuditOutcome:
     scripts: list[dict] = field(default_factory=list)
     # The WCAG-EM sample (sampling.wcag_em_sample) when the pages were sampled.
     sample: dict | None = None
+    # Linked PDFs and veraPDF's results for them (documents.check_documents).
+    documents: list[dict] = field(default_factory=list)
 
 
 def _err(stage: str, exc: Exception) -> str:
@@ -346,6 +349,8 @@ async def run_audit(
         outcome.memory = remember_run_safely(audit, outcome)
 
     outcome.warnings += unreviewed_warning(audit)
+    outcome.documents, unchecked = await check_documents(audit)
+    outcome.warnings += unchecked
     outcome.tool_runs = audit.tool_runs
     outcome.engines = dict(audit.engines)
     outcome.report = compile_site_report(audit)

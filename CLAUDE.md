@@ -77,6 +77,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Install: `pip install -r requirements.txt`, then `playwright install chromium`.
   - NVDA (optional): `cd nvda_bridge && npm install && node node_modules/@guidepup/setup/lib/index.js setup && node node_modules/@guidepup/setup/lib/index.js install nvda`.
   - `package.json` pins `commander`/`undici` overrides, because Node is 20 here and the latest deps need 22.
+  - veraPDF (optional, for linked PDFs): install its CLI (it needs Java 11+) and put `verapdf` on PATH.
 - Config in `.env`: `OPENAI_API_KEY`, and optionally `OPENAI_MODEL` and `OPENAI_REVIEWER_MODEL`. The agents read nothing else from it; resolution happens in `team.orchestrator.run_audit`.
 - Run with `.venv/Scripts/python.exe main.py URL`. See `--help` for all flags.
   - Default `--mode agent`: the planner agent owns the run within `--budget-calls` / `--budget-minutes` / `--max-pages` (`--pages` is the minimum). `--mode code` is the fixed per-page flow. The agents **click and type on the site by default** (writes stay blocked unless `--allow-submit`); `--no-interaction` forbids it. Also `--memory PATH|off`, `--delegation handoffs|tools`, `--measurement eager|lazy`, `--sample wcag-em [--seed N]`, `--sr-agent`.
@@ -142,6 +143,7 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 4. **Specialists** run nested `Runner.run`s on the same `AuditContext` (80 turns) over their own open items and report what they left (`not_judged`), which stays open for the lead.
 5. **Process** (`--process`): a separate lead run from the restored first page. **Site tests** re-run 3.2.3/3.2.4/3.2.6 on every page once all pages exist.
 6. **Coverage warnings** (pages not done, specialist leftovers) go to `outcome.warnings` and the report.
+   **Linked PDFs** (`documents.check_documents`, both modes, after the review): same-site PDFs the pages link to are fetched and validated against PDF/UA-1 by veraPDF, each its own item in the report's "Linked documents", not merged into the criteria. Without veraPDF they are a coverage warning.
 7. **Reviewer** (its own model if set): restores each page and verifies every `FAIL` and every agent `PASS` or `NOT_APPLICABLE` in batches of 25. Agent items carry `automated_check` (the rule's results and details).
 8. **Summary writer** sees only the reviewed data and the warnings. Every stage tolerates failure; errors go to `outcome.errors`.
 
