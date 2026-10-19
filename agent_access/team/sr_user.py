@@ -24,7 +24,7 @@ from agent_access.context import AuditContext, call_tool
 from agent_access.intent import irreversible
 from agent_access.jsassets import js
 from agent_access.probes.screen_reader import _match_snapshot_line, _speak, reading_items
-from agent_access.team.guardrails import ACTIVE_JS, personal_data_in
+from agent_access.team.guardrails import ACTIVE_JS, apply_guardrails, personal_data_in, scrub
 from agent_access.team.runtime import run_config, settings
 from agent_access.tripwires import record_tripwire
 
@@ -33,8 +33,6 @@ TRANSCRIPT_LINES = 14   # the end of the transcript that a fail carries as its e
 QUICK = {"next_heading": {"heading"}, "next_link": {"link"},
          "next_form_field": {"textbox", "searchbox", "combobox", "checkbox", "radio", "listbox", "spinbutton",
                              "slider", "switch", "button"}}
-LIVE_JS = ("() => [...document.querySelectorAll('[role=alert], [role=status], [aria-live=polite], [aria-live=assertive]')]"
-           ".map((el) => (el.innerText || '').trim()).filter(Boolean)")
 Command = Literal["top", "read_next", "read_previous", "next_heading", "next_link", "next_form_field"]
 Key = Literal["Tab", "Shift+Tab", "Enter", "Space", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"]
 Criterion = Literal["1.3.1", "2.1.1", "2.4.3", "2.4.4", "2.4.6", "3.3.1", "3.3.2", "4.1.2", "4.1.3"]
@@ -104,6 +102,13 @@ async def sr_read(audit: AuditContext, state: dict, command: str) -> dict:
     return _heard(state, command, items[at][2])
 
 
+async def _live(page) -> list[str]:
+    """Live-region text a screen reader would speak, by the 4.1.3 probe's rule (helpers.js heardLiveText): visible,
+    not under aria-hidden, not aria-live=off, and known before its text arrived unless it is a role="alert". It reads
+    only the regions: the probe's validity checks would fire the page's invalid handlers."""
+    return await page.evaluate(js("forms/live_text"))
+
+
 async def _announce(audit: AuditContext, state: dict, live_before: list[str], url_before: str) -> str:
     """What a screen reader says after an action: a new page, the focused control, new live-region text."""
     page = await audit.page()
@@ -119,13 +124,13 @@ async def _announce(audit: AuditContext, state: dict, live_before: list[str], ur
                 state["at"] = at
     else:
         said.append(f"{await page.title()}, document")   # focus fell back to the page
-    said += [f"announced: {t[:200]}" for t in await page.evaluate(LIVE_JS) if t not in live_before]
+    said += [f"announced: {t[:200]}" for t in await _live(page) if t not in live_before]
     return "; ".join(said)
 
 
 async def _act(audit: AuditContext, state: dict, what: str, action) -> dict:
     page = await audit.page()
-    live_before, url_before = await page.evaluate(LIVE_JS), page.url
+    live_before, url_before = await _live(page), page.url
     result = await action()
     if "error" in result:
         return _heard(state, what, f"(nothing happened: {result['error']})")
@@ -174,7 +179,7 @@ async def sr_record_stuck(audit: AuditContext, state: dict, criterion: str, desc
             selectors = [await _under_cursor(page, items, state["at"]).evaluate(js("forms/css_path"), timeout=2000)]
         except Exception:
             pass   # the line has no element to point at; the transcript still shows what was heard
-    evidence = "Screen reader transcript (emulated, NVDA-style):\n" + "\n".join(state["transcript"][-TRANSCRIPT_LINES:])
+    evidence = "Screen reader transcript (emulated, NVDA-style):\n" + scrub("\n".join(state["transcript"][-TRANSCRIPT_LINES:]))[0]
     return add_manual_finding(audit, criterion, "fail", description, evidence, selectors)
 
 
@@ -244,8 +249,8 @@ async def run_sr_user(audit: AuditContext, page_key: str, model: str | Model | N
         errors.append(f"screen reader user ({page_key}): the page could not be loaded again.")
         return []
     audit.current_url = page_key
-    agent = Agent(name="Screen reader user", instructions=INSTRUCTIONS, model=model, model_settings=settings(model),
-                  tools=sr_tools(), output_type=SRReport)
+    agent = apply_guardrails(Agent(name="Screen reader user", instructions=INSTRUCTIONS, model=model,
+                                   model_settings=settings(model), tools=sr_tools(), output_type=SRReport))
     try:
         result = await Runner.run(agent, f"Use this page with the screen reader: {page_key}", context=audit,
                                   max_turns=SR_MAX_TURNS, run_config=run_config(audit, f"WCAG audit: screen reader user ({page_key})"))
