@@ -7,8 +7,15 @@ import rules from "@siteimprove/alfa-rules";
 import { Page } from "@siteimprove/alfa-web";
 import { Element, Node } from "@siteimprove/alfa-dom";
 import { Native } from "@siteimprove/alfa-dom/native";
-import { Device } from "@siteimprove/alfa-device";
+import { Device, Display, Preference, Scripting, Viewport } from "@siteimprove/alfa-device";
 import { Request, Response } from "@siteimprove/alfa-http";
+
+// The browser's own viewport, pixel ratio and emulated media preferences, so Alfa's cascade matches what is shown.
+const PREFERENCES = [["prefers-color-scheme", "dark"], ["prefers-reduced-motion", "reduce"], ["prefers-contrast", "more"],
+                     ["forced-colors", "active"]];
+const device = () => Device.of(Device.Type.Screen,
+  Viewport.of(innerWidth, innerHeight, innerWidth >= innerHeight ? "landscape" : "portrait"), Display.of(devicePixelRatio),
+  Scripting.of(true), PREFERENCES.filter(([n, v]) => matchMedia(`(${n}: ${v})`).matches).map(([n, v]) => Preference.of(n, v)));
 
 const wcag = (rule) => [...rule.requirements].map((r) => r.chapter).filter((c) => /^[1-4]\.\d+\.\d+$/.test(c || ""));
 
@@ -17,8 +24,8 @@ window.__alfa = {
   rules: () => [...rules].map((r) => ({ id: r.uri.split("/").pop(), criteria: wcag(r) })),
   // Failed outcomes only: Alfa is a second opinion, and its cantTell is a question the auditors already ask.
   audit: async () => {
-    const device = Device.standard();
-    const page = Page.of(Request.empty(), Response.empty(), Node.from(await Native.fromNode(document), device), device);
+    const now = device();
+    const page = Page.of(Request.empty(), Response.empty(), Node.from(await Native.fromNode(document), now), now);
     const out = [];
     for (const o of await Audit.of(page, rules).evaluate()) {
       if (!Outcome.isFailed(o) || !wcag(o.rule).length) continue;

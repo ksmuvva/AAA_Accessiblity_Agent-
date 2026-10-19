@@ -28,8 +28,13 @@ def alfa_source() -> str:
 async def alfa(audit: AuditContext) -> dict:
     """{"version", "rules": [{id, message, criteria, elements, selectors}]}: Alfa's failed rules on the page."""
     page = await audit.page()
-    if (n := await page.evaluate("() => document.getElementsByTagName('*').length")) > MAX_ELEMENTS:
-        return {"error": f"not run: {n} elements, over the {MAX_ELEMENTS} the second engine runs on (it is slow on large pages)"}
+    scope = await page.evaluate(js("alfa/scope"))
+    if scope["elements"] > MAX_ELEMENTS:
+        return {"error": f"not run: {scope['elements']} elements, over the {MAX_ELEMENTS} the second engine runs on "
+                         "(it is slow on large pages)"}
+    if scope["unreadable"]:   # its style-based rules would then judge an unstyled page
+        return {"error": f"not run: {scope['unreadable']} stylesheet(s) from another origin can't be read, so Alfa "
+                         "would see the page unstyled"}
     # As for axe: the bundle's own listeners aren't the page's.
     await page.evaluate("() => { if (window.__a11yInstr) window.__a11yInstr.paused = true; }")
     try:

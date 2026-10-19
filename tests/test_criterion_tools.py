@@ -145,3 +145,51 @@ def test_alfa_is_a_second_opinion_that_only_asks():
     _, (error, titled) = judge_then('<!doctype html><html lang="en"><head><title>Tea brewing guide</title></head><body>'
                                     '<main><h1>Tea</h1></main></body></html>', then=break_alfa)
     assert "boom" in error and titled and not any("[Not established" in f.description for f in titled)
+
+
+def test_alfa_sees_the_page_as_the_browser_shows_it_or_not_at_all(tmp_path):
+    """Codex review on #37: Alfa judged the page under a 1280x720 device with no media preferences, counted only the
+    light DOM against its size cap, and read another origin's stylesheet as empty."""
+    import functools
+    import http.server
+    import threading
+
+    from agent_access.agent_tools.browser_tools import load_html_content, open_url
+    from agent_access.context import AuditContext
+    from agent_access.probes import collect
+
+    def serve(directory):
+        handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
+        handler.log_message = lambda *a: None
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, f"http://127.0.0.1:{server.server_address[1]}"
+    (tmp_path / "css").mkdir()
+    (tmp_path / "css" / "site.css").write_text("p { line-height: 2 }")
+    css_server, css_base = serve(tmp_path / "css")   # another port: another origin, and no CORS headers
+    (tmp_path / "page.html").write_text(f'<html lang="en"><head><title>Tea</title><link rel="stylesheet" '
+                                        f'href="{css_base}/site.css"></head><body><p>Steep it.</p></body></html>')
+    page_server, page_base = serve(tmp_path)
+
+    async def scenario():
+        async with AuditContext(screen_reader="emulated") as audit:
+            await load_html_content(audit, '<html lang="en"><head><title>Tea</title><style>p { line-height: 2 } '
+                                    '@media (prefers-color-scheme: dark) { p { line-height: normal } }</style></head>'
+                                    '<body><p>Steep the leaves.</p></body></html>', "dark")
+            await (await audit.page()).emulate_media(color_scheme="dark")
+            dark = await collect(audit, "alfa")
+            await load_html_content(audit, '<html lang="en"><head><title>Tea</title></head><body><div id="h"></div><script>'
+                                    'document.getElementById("h").attachShadow({mode: "open"}).innerHTML = '
+                                    '"<span>x</span>".repeat(3100)</script></body></html>', "shadow")
+            shadow = await collect(audit, "alfa")
+            assert "error" not in await open_url(audit, f"{page_base}/page.html")
+            styled_elsewhere = await collect(audit, "alfa")
+            return dark, shadow, styled_elsewhere
+    try:
+        dark, shadow, styled_elsewhere = asyncio.run(scenario())
+    finally:
+        css_server.shutdown()
+        page_server.shutdown()
+    assert any("1.4.8" in r["criteria"] for r in dark.data["rules"])   # the dark-mode line height Alfa now sees
+    assert shadow.error.startswith("not run: 31") and "elements" in shadow.error
+    assert styled_elsewhere.error.startswith("not run: 1 stylesheet(s) from another origin")
