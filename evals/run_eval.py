@@ -147,11 +147,14 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None, calls_left
                                       review=not args.skip_review, progress=lambda m: print(f"  {m}", file=sys.stderr))
         model_calls = getattr(audit.budget, "model_calls", None)
         calls_by_agent = dict(getattr(audit.budget, "by_agent", None) or {})
+        # Findings the reviewer left without a verdict, and the ids it answered instead, so a miss can be traced.
+        review_incomplete = [t["detail"] for t in audit.tripwires if t["kind"] == "review_incomplete"]
         models = audit.engines.get("Agent models")
     criteria = (outcome.report.criteria + outcome.report.beyond_target) if outcome.report else []
     actual = {c.wcag_criterion: c.status.value for c in criteria}
     result = {"name": case["name"], **score(case["expected"], actual), "errors": outcome.errors,
-              "warnings": outcome.warnings, "model_calls": model_calls, "calls_by_agent": calls_by_agent, "models": models,
+              "warnings": outcome.warnings, "model_calls": model_calls, "calls_by_agent": calls_by_agent,
+              "review_incomplete": review_incomplete, "models": models,
               "reported": outcome.report is not None}
     # Why a row missed, kept in the results file so a miss can be explained without paying for a rerun.
     findings = {c.wcag_criterion: c.findings for c in criteria}
@@ -174,7 +177,7 @@ async def main_async(args: argparse.Namespace) -> int:
     if not cases:
         print("No matching cases.", file=sys.stderr)
         return 2
-    results, totals, spent, stopped, by_agent = [], Counter(), 0, 0, Counter()
+    results, totals, spent, stopped, by_agent, no_credits = [], Counter(), 0, 0, Counter(), False
     memory = None if args.mode == "baseline" else open_memory(args)
     runs = [c for c in cases for _ in range(args.repeats)]
     if args.mode != "baseline":
@@ -195,6 +198,11 @@ async def main_async(args: argparse.Namespace) -> int:
         if calls := result.get("calls_by_agent"):
             print(f"  model calls: {result['model_calls']} ({by_count(calls)})")
             by_agent.update(calls)
+        if any("insufficient_quota" in e for e in result["errors"]):   # every later model call would fail too
+            stopped, no_credits = len(runs) - i - 1, True
+            print(f"Stopped: the OpenAI account has no credits left (insufficient_quota). This case is partial and "
+                  f"{stopped} case run(s) were not started.", file=sys.stderr)
+            break
     summary = metrics(totals)
     print(f"\nRecall {summary['recall']} (95% {summary['recall_ci']})  Precision {summary['precision']}  "
           f"Decided {summary['decided']}  False passes {summary['false_passes']} (rate 95% {summary['false_pass_rate_ci']})")
@@ -215,6 +223,8 @@ async def main_async(args: argparse.Namespace) -> int:
                                "memory": args.memory, "used_lessons": args.use_lessons, "lessons_written": lessons},
                               indent=2), encoding="utf-8")
     print(f"Results: {out}")
+    if no_credits:
+        return 6
     if stopped or (args.mode != "baseline" and spent >= args.max_calls):   # the cap also ends the case it interrupts
         print(f"Cost guard: the run reached --max-calls {args.max_calls}; its results are partial.", file=sys.stderr)
         return 5

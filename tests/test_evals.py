@@ -103,3 +103,26 @@ def test_a_miss_keeps_the_findings_that_explain_it():
     missed = rows["2.4.6"]
     assert missed["outcome"] == "flagged_for_human" and missed["findings"]
     assert set(missed["findings"][0]) == {"status", "original_status", "source", "verdict", "note", "description"}
+
+
+def test_an_account_without_credits_stops_the_run(monkeypatch, tmp_path):
+    """E3 ran out of credits after three cases and went on scoring nine cases whose every model call failed."""
+    import asyncio
+    from argparse import Namespace
+
+    import evals.run_eval as run_eval
+    started = []
+
+    async def fake_case(case, args, memory=None, calls_left=10**9):
+        started.append(case["name"])
+        errors = ["lead auditor (file:page.html): RateLimitError: Error code: 429 - {'error': {'type': 'insufficient_quota'}}"]
+        return {"name": case["name"], **score(case["expected"], {}), "errors": errors if case["name"] == "b" else [],
+                "warnings": [], "model_calls": 5, "models": None, "reported": True, "lessons_written": 0}
+    monkeypatch.setattr(run_eval, "run_case", fake_case)
+    monkeypatch.setattr(run_eval, "HERE", tmp_path)
+    (tmp_path / "cases.json").write_text(json.dumps({"cases": [{"name": n, "expected": {"1.1.1": "fail"}} for n in "abcd"]}))
+    args = Namespace(cases_file=str(tmp_path / "cases.json"), cases=None, mode="agent", memory="off", repeats=1,
+                     max_calls=1000, use_lessons=False, measurement="lazy", no_interaction=False, model=None,
+                     reviewer_model=None, fail_on_false_pass=False)
+    assert asyncio.run(run_eval.main_async(args)) == 6 and started == ["a", "b"]
+    assert json.loads(next((tmp_path / "results").glob("*.json")).read_text())["not_started"] == 2
