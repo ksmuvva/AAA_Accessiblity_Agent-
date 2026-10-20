@@ -292,9 +292,11 @@ def check_sensory_characteristics(ctx: Ctx) -> None:
     """Check instructions don't rely only on shape, colour, size, location, or sound."""
     page = ctx.data("page")
     text = page.get("body_text", "")
-    names = [n for n in [link["text"] for link in page.get("links", [])] + page.get("button_names", []) if n]
-    by_look = sorted({m.group(0).strip() for m in BY_LOOK.finditer(text)   # its control's label, as written, is missing
-                      if not any(re.search(rf"(?<!\w){re.escape(n)}(?!\w)", m.group(0)) for n in names)})
+    names = {n for n in [x for link in page.get("links", []) for x in (link["text"], link["name"])]
+             + page.get("button_names", []) if n}
+    # A control's name, in any case, names it; except as a purpose clause: "press the round button to continue".
+    by_look = sorted({m.group(0).strip() for m in BY_LOOK.finditer(text)
+                      if not any(re.search(rf"(?<!\bto )(?<!\w){re.escape(n)}(?!\w)", m.group(0), re.I) for n in names)})
     matches = sorted({m.group(0) for m in SENSORY.finditer(text)})
     if by_look:
         ctx.fail(f"{len(by_look)} instruction(s) point at a control only by its shape or colour, not by its label.",
