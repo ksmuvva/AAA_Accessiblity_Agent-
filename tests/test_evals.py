@@ -73,7 +73,7 @@ def test_the_cost_guard_stops_starting_cases_at_the_cap(monkeypatch, tmp_path):
     async def fake_case(case, args, memory=None, calls_left=10**9):
         seen.append(calls_left)
         return {"name": case["name"], **score(case["expected"], {}), "errors": [], "warnings": [], "model_calls": 600,
-                "models": None, "reported": True, "lessons_written": 0}
+                "calls_by_agent": {"Lead auditor": 500, "Reviewer": 100}, "models": None, "reported": True, "lessons_written": 0}
     monkeypatch.setattr(run_eval, "run_case", fake_case)
     monkeypatch.setattr(run_eval, "HERE", tmp_path)
     (tmp_path / "cases.json").write_text(json.dumps({"cases": [{"name": n, "expected": {"1.1.1": "fail"}} for n in "abc"]}))
@@ -84,6 +84,7 @@ def test_the_cost_guard_stops_starting_cases_at_the_cap(monkeypatch, tmp_path):
     assert seen == [1000, 400]                                  # each case may spend only what the run has left
     saved = json.loads(next((tmp_path / "results").glob("*.json")).read_text())
     assert (saved["model_calls"], saved["not_started"]) == (1200, 1)
+    assert saved["calls_by_agent"] == {"Lead auditor": 1000, "Reviewer": 200}   # where the run's calls went
     args.cases, args.max_calls = ["a"], 600                    # the cap cuts the only case: still exit 5
     assert asyncio.run(run_eval.main_async(args)) == 5
 

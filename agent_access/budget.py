@@ -27,6 +27,9 @@ class Budget:
     reserve_calls: int = 60          # kept for the reviewer and the summary writer
     review_calls_per_page: int = 20  # rough: reviewing one more page, moved into the reserve when the page starts
     model_calls: int = 0
+    # Where the calls went, so a run shows which agent and which page spent them (summary() reports both).
+    by_agent: dict[str, int] = field(default_factory=dict)
+    by_page: dict[str, int] = field(default_factory=dict)
     started: float = field(default_factory=time.monotonic)
 
     def spend(self, calls: int = 1) -> None:
@@ -92,3 +95,6 @@ def charge_model_call(context: object | None, agent_name: str | None = None) -> 
         raise BudgetExhausted(f"Model-call budget spent for {agent_name or 'this agent'} "
                               f"({budget.model_calls}/{budget.max_model_calls} calls, {budget.elapsed_minutes:.1f} min).")
     budget.spend()
+    agent, page = agent_name or "unnamed", getattr(context, "current_url", None) or "no page"
+    budget.by_agent[agent] = budget.by_agent.get(agent, 0) + 1
+    budget.by_page[page] = budget.by_page.get(page, 0) + 1

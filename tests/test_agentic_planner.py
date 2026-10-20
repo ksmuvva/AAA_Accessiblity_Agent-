@@ -18,6 +18,17 @@ def test_working_agents_stop_at_the_soft_limit_but_closing_agents_keep_the_reser
     charge_model_call(SimpleNamespace(budget=None), "Lead auditor")   # no budget: no-op
 
 
+def test_model_calls_are_counted_by_agent_and_by_page():
+    from types import SimpleNamespace
+    from agent_access.budget import charge_model_call
+    budget = Budget(max_model_calls=10, reserve_calls=0, max_minutes=60)
+    for agent, page in (("Lead auditor", "https://x/"), ("Lead auditor", "https://x/"),
+                        ("Forms specialist", "https://x/cart"), ("Summary writer", None)):
+        charge_model_call(SimpleNamespace(budget=budget, current_url=page), agent)
+    assert budget.by_agent == {"Lead auditor": 2, "Forms specialist": 1, "Summary writer": 1}
+    assert budget.by_page == {"https://x/": 2, "https://x/cart": 1, "no page": 1}
+
+
 def test_budget_keeps_a_reserve_for_the_closing_stages():
     b = Budget(max_model_calls=10, reserve_calls=3, max_minutes=60)
     for _ in range(7):
@@ -116,6 +127,9 @@ def test_planner_owns_the_run_and_the_code_floors_close_it(tmp_path):
     assert "review" in actions and "summary" in actions                   # closing stages ran (code floor)
     assert outcome.report is not None and outcome.summary is not None
     assert outcome.budget_used["max_model_calls"] == 400 and isinstance(outcome.tripwires, list)
+    by_agent = outcome.budget_used["by_agent"]   # where the calls went, in report.json and the eval results
+    assert {"Audit planner", "Lead auditor", "Reviewer", "Summary writer"} <= set(by_agent)
+    assert sum(by_agent.values()) == outcome.budget_used["model_calls"] == sum(outcome.budget_used["by_page"].values())
     assert any(n.startswith(f"{PAGE}: No video") for n in outcome.lead_notes)
     assert outcome.errors == []
 

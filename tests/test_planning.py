@@ -250,3 +250,28 @@ def test_a_state_owes_a_judgement_whose_quoted_content_changed_but_not_a_measure
             f.evidence = "38 frames at 18.5 fps"
     owed = {i["criterion"] for i in open_items(audit, STATE)["open"]}
     assert "2.4.6" in owed and "2.3.1" not in owed
+
+
+def test_needs_review_is_only_for_evidence_out_of_the_tools_reach():
+    """In evals the agents described a defect ("radio buttons not grouped with a fieldset/legend") and recorded
+    needs_review anyway. Every prompt that lets an agent record a judgement draws the line in the same words, and
+    recording needs_review is answered with the reminder, when the agent can still change it."""
+    from agents import RunContextWrapper
+    from agent_access.agent_tools.report_tools import NEEDS_REVIEW_RULE
+    from agent_access.team.audit_agent import build_audit_agent
+    from agent_access.team.orchestrator import continuation_prompt
+    from agent_access.team.specialists import build_specialist
+
+    audit = fresh_audit()
+    lead = build_audit_agent()
+    prompts = [lead.instructions(RunContextWrapper(context=audit), lead),
+               continuation_prompt("page", {"open_count": 1, "open": [{"criterion": "1.3.1", "title": "Info"}]})]
+    for domain in ("forms", "media", "navigation"):
+        agent = build_specialist(domain)
+        prompts.append(agent.instructions if isinstance(agent.instructions, str)
+                       else agent.instructions(RunContextWrapper(context=audit), agent))
+    assert all(NEEDS_REVIEW_RULE in p for p in prompts)
+    assert not any("when you can't decide" in p or "If unsure, record" in p for p in prompts)
+    hedged = add_manual_finding(audit, "1.3.1", "needs_review", "Radios not grouped.", "No fieldset or legend.", [])
+    assert "record fail instead" in hedged["note"]
+    assert "note" not in add_manual_finding(audit, "1.3.3", "fail", "Shape cue.", "'Press the round button'.", [])
