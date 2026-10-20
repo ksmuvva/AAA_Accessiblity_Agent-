@@ -46,7 +46,11 @@ def add_manual_finding(
     if new_status is Status.PASS and not tool.judgement and tool.name not in audit.attempted_on(audit.current_url):
         return {"error": f"{rule.wcag_criterion} is measured, and its check hasn't run on this page state: run_checks "
                          "it first, then confirm what it measured."}
-    if new_status is Status.NOT_APPLICABLE and (unopened := _unopened_controls(audit)):
+    unopened = _unopened_controls(audit) if new_status is Status.NOT_APPLICABLE else None
+    # The single auditor has no tools to open controls, but the disclosures probe opened them and lists what they show:
+    # its not-applicable is recorded, with that content to check, instead of refused.
+    shown = unopened if unopened and unopened.startswith(REVEALS) and not audit.verdicts_reviewed else None
+    if unopened and not shown:
         return {"error": f"{rule.wcag_criterion} can't be not applicable yet: {unopened} Open them (click_element, then "
                          "label_page_state) and judge what they reveal; if you can't, leave the criterion open for the "
                          "lead or record needs_review."}
@@ -76,7 +80,12 @@ def add_manual_finding(
     return {"recorded": finding.wcag_criterion, "status": finding.status.value, "page_url": audit.current_url,
             **({"replaced_earlier_judgements": len(superseded)} if superseded else {}),
             **({"note": "If the page shows the defect, record fail instead: the reviewer re-checks every fail."}
-               if new_status is Status.NEEDS_REVIEW else {})}
+               if new_status is Status.NEEDS_REVIEW else {}),
+            **({"note": f"Recorded, but {shown} If any of it is content this criterion covers, "
+                        "record a result for it instead."} if shown else {})}
+
+
+REVEALS = "these controls reveal content no check has judged: "
 
 
 def _unopened_controls(audit: AuditContext) -> str | None:
@@ -91,8 +100,7 @@ def _unopened_controls(audit: AuditContext) -> str | None:
     if failed := seen.error or seen.data.get("stopped_early"):
         return f"what this page's menus, accordions and dialogs reveal couldn't be fully measured ({str(failed)[:100]})."
     revealing = [r for r in disclosure_groups(seen.data.get("results", []))["opened"] if r.get("content")]
-    return ("these controls reveal content no check has judged: "
-            + "; ".join(f"{r['name']!r} ({r['trigger']}) shows {r['content'][:80]!r}" for r in revealing[:5]) + "."
+    return (REVEALS + "; ".join(f"{r['name']!r} ({r['trigger']}) shows {r['content'][:80]!r}" for r in revealing[:5]) + "."
             if revealing else None)
 
 

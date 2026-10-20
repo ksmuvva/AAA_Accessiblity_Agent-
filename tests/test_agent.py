@@ -253,7 +253,7 @@ def test_cli_argument_validation():
                        "--process", "checkout"])  # interaction is on by default, so --process alone is valid
     assert args.mode == "code" and args.measurement == "lazy" and args.max_pages == 3 and args.process == "checkout"
     assert parse_args(["https://x.com"]).measurement == "lazy"  # the agents choose what to measure by default
-    assert parse_args(["https://x.com", "--measurement", "eager"]).measurement == "eager"
+    assert parse_args(["https://x.com", "--mode", "agent", "--measurement", "eager"]).measurement == "eager"
     for bad in (["https://x.com", "--process", "checkout", "--no-interaction"], ["--html-file", "a.html", "--pages", "2"], [],
                 ["https://x.com", "--allow-submit", "https://x.com/", "--no-interaction"], ["https://x.com", "--max-turns", "0"],
                 ["https://x.com", "--measurement", "sometimes"]):
