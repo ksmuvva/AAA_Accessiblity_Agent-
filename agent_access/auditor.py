@@ -97,6 +97,7 @@ async def audit_site(audit: AuditContext, *, start_url: str | None, pages: int, 
     """Audit the preloaded page or `start_url`, then up to `pages - 1` more same-site pages in link order."""
     outcome = AuditOutcome(report=None)
     audit.verdicts_reviewed = False
+    audit.measurement = "lazy"   # checks run when the agent calls them, then the rest of the target level; not eager
     audit.engines["Agent models"] = f"auditor: {_model_name(model)}"
     agent = build_auditor(audit, model)
     queue = [audit.current_url] if audit.has_page() else [start_url]
