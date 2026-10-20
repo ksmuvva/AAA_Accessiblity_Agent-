@@ -4,7 +4,7 @@ Agent_Access is a multi-agent WCAG 2.2 auditor on the **OpenAI Agents SDK** (`op
 **Never create a module named `agents`**: it shadows the SDK. Everything lives inside `agent_access/`.
 
 - One rule per WCAG 2.2 criterion: **86 rules** (A/AA/AAA), each with a fixed name, e.g. `check_non_text_content` (1.1.1).
-- Technologies: axe-core, Playwright (Chromium), the Colour Contrast Analyser method, and NVDA (real via Guidepup, or emulated from the accessibility tree).
+- Technologies: axe-core, Playwright (Chromium), the Colour Contrast Analyser method, NVDA (real via Guidepup, or emulated from the accessibility tree), and Siteimprove Alfa as a second opinion that only asks.
 - Flow: every page is measured in code (eager: all probes, then all 86 rules on load; lazy, the CLI default: the agents choose, and the target level is swept before a page is done). A lead agent plus forms/media/navigation specialists then judge **every** criterion (see the coverage contract). A reviewer re-checks every FAIL and every agent PASS or NOT_APPLICABLE, and a summary writer finishes.
 - `--level A|AA|AAA` (default AA) sets the target. Criteria above it are reported as `beyond_target`: always tested in eager measurement, only when an agent asks in lazy (the CLI default).
 
@@ -123,6 +123,7 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
   - Interactive probes wait with `interaction.settle(page, cap_ms)` (quiet DOM, no running transition, no pending short timer), not fixed sleeps.
 - **Rule** (`@wcag_tool(criterion, name, domain=, tech=, uses=, judgement=)`): a synchronous function that reads only `ctx.data(probe)` for probes in `uses` and records verdicts via `ctx.fail/review/passed/not_applicable/axe()`. Rules never touch the browser. `judgement=True` means automation can't decide alone; `judgement=False` means *measured*. Either way `your_judgement_needed` exists (`engine.judgement_question`): the catalogue's `manual_checks`, prefixed for a measured rule with "confirm the measurement covered the page" and for a not-applicable result with "confirm nothing was missed".
 - Criteria in `rules.AXE_CRITERIA` get `axe` in `uses`, and `engine.judge` records axe's results when a rule's own code didn't (re-list it after upgrading axe-core; a test checks).
+- Criteria in `rules.ALFA_CRITERIA` get `alfa` (Siteimprove Alfa, `vendor/alfa.min.js`, built from `vendor/alfa_entry.mjs`); `engine.judge` adds Alfa's failures as `needs_review` (source `alfa`) only where the criterion hasn't failed, never as fails. An `alfa` probe error never degrades a rule's result, and the probe skips pages over 3,000 elements (it took 22 s on 5,000). Re-list the set after rebuilding the bundle; a test checks.
 - **`engine.run_rule`** is the single entry point: it replaces the rule's previous findings on the page (`check_id` = rule name), always records at least one finding, keeps `ctx.details` in `audit.rule_details`, and logs to `audit.tool_runs`.
 - **`engine.retest`** re-runs a retestable probe (`forms`, `hover`, `disclosures`) on selectors, merges the data (same element replaces the old entry), and re-runs every rule that uses it.
 - **Rule names are owner-specified:** `tests/test_wcag_tools.py::EXPECTED_NAMES`. Cover new failure logic with a fixture assertion.

@@ -56,7 +56,8 @@ def test_run_checks_measures_only_what_the_rules_need():
 
     first, probes1, second, probes2, checks, items = asyncio.run(scenario())
     assert [r["criterion"][:5] for r in first["ran"]] == ["2.4.2", "3.1.1"] and first["ignored"] == ["9.9.9"]
-    assert probes1 == set(CHEAP_PROBES)  # title and language rules read probes the lazy load already had
+    # Title and language rules read probes the lazy load already had, and the second engine (Alfa) maps to both.
+    assert probes1 == set(CHEAP_PROBES) | {"alfa"}
     assert "contrast" in probes2 and probes2 - probes1 <= {"contrast"}  # 1.4.3 collected exactly what it needed
     assert checks == {"check_page_title", "check_page_language", "check_minimum_text_contrast"}
     assert all(r["your_judgement_needed"] for r in first["ran"] + second["ran"])

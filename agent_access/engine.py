@@ -78,6 +78,8 @@ def judge(audit: AuditContext, tool: WcagTool, probes: dict) -> tuple[Ctx, str |
         tool.impl(ctx)
         if "axe" in probes and not any(f.source == "axe" for f in ctx.findings):
             ctx.axe()   # a rule that doesn't read axe itself still reports what axe found for its criterion
+        if "alfa" in probes and not any(f.status is Status.FAIL for f in ctx.findings):
+            ctx.alfa()   # a second engine's failures, as questions, where the criterion hasn't failed already
     except Exception as exc:  # A broken rule must not stop the sweep.
         return ctx, f"{type(exc).__name__}: {str(exc)[:200]}"
     # A probe that failed or stopped early saw only part of the page (or none): an empty result there proves nothing.
@@ -152,6 +154,9 @@ def register_engines(audit: AuditContext) -> None:
     axe = audit.observations.get(audit.current_url, {}).get("axe")
     if axe is not None and not axe.error and axe.data.get("version"):
         audit.engines["axe-core"] = f"axe-core {axe.data['version']}"
+    alfa = audit.observations.get(audit.current_url, {}).get("alfa")
+    if alfa is not None and not alfa.error and alfa.data.get("version"):
+        audit.engines["Siteimprove Alfa"] = f"Siteimprove Alfa {alfa.data['version']} (second opinion: questions only)"
 
 
 async def run_site_tests(audit: AuditContext) -> None:

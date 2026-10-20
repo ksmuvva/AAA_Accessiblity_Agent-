@@ -52,13 +52,15 @@
                   "technologies": [
                     "axe-core",
                     "Playwright",
-                    "NVDA"
+                    "NVDA",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
                     "page",
                     "screen_reader",
-                    "media"
+                    "media",
+                    "alfa"
                   ]
                 }
               ],
@@ -86,11 +88,13 @@
                 {
                   "check": "check_prerecorded_audio_video_alternatives",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "media",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -112,11 +116,13 @@
                 {
                   "check": "check_prerecorded_captions",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "media",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -138,11 +144,13 @@
                 {
                   "check": "check_audio_description_or_media_alternative",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "media",
-                    "page"
+                    "page",
+                    "alfa"
                   ]
                 }
               ],
@@ -189,10 +197,12 @@
                 {
                   "check": "check_prerecorded_audio_description",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
-                    "media"
+                    "media",
+                    "alfa"
                   ]
                 }
               ],
@@ -264,11 +274,13 @@
                 {
                   "check": "check_prerecorded_media_alternative",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "media",
-                    "page"
+                    "page",
+                    "alfa"
                   ]
                 }
               ],
@@ -323,12 +335,14 @@
                   "technologies": [
                     "axe-core",
                     "Playwright",
-                    "NVDA"
+                    "NVDA",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
                     "page",
-                    "screen_reader"
+                    "screen_reader",
+                    "alfa"
                   ]
                 }
               ],
@@ -402,11 +416,13 @@
                 {
                   "check": "check_orientation",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "orientation",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -429,11 +445,13 @@
                   "check": "check_input_purpose",
                   "technologies": [
                     "axe-core",
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
-                    "forms"
+                    "forms",
+                    "alfa"
                   ]
                 }
               ],
@@ -487,11 +505,13 @@
                   "check": "check_use_of_color",
                   "technologies": [
                     "axe-core",
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
-                    "page"
+                    "page",
+                    "alfa"
                   ]
                 }
               ],
@@ -513,11 +533,13 @@
                 {
                   "check": "check_audio_control",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "media",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -540,11 +562,13 @@
                   "check": "check_minimum_text_contrast",
                   "technologies": [
                     "Colour Contrast Analyser method",
-                    "axe-core"
+                    "axe-core",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "contrast",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -566,11 +590,13 @@
                 {
                   "check": "check_resize_text",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "zoom",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -617,11 +643,13 @@
                 {
                   "check": "check_enhanced_text_contrast",
                   "technologies": [
-                    "Colour Contrast Analyser method"
+                    "Colour Contrast Analyser method",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "contrast",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -668,10 +696,12 @@
                 {
                   "check": "check_visual_presentation",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
-                    "page"
+                    "page",
+                    "alfa"
                   ]
                 }
               ],
@@ -770,11 +800,13 @@
                 {
                   "check": "check_text_spacing",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "text_spacing",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -833,13 +865,15 @@
                 {
                   "check": "check_keyboard_accessibility",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "keyboard",
                     "disclosures",
                     "instrumentation",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -887,7 +921,8 @@
                 {
                   "check": "check_keyboard_accessibility_no_exception",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "keyboard",
@@ -895,7 +930,8 @@
                     "instrumentation",
                     "page",
                     "media",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -950,13 +986,15 @@
                   "check": "check_timing_adjustable",
                   "technologies": [
                     "axe-core",
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "instrumentation",
                     "page",
                     "timeouts",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -1033,12 +1071,14 @@
                 {
                   "check": "check_interruptions",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "page",
                     "instrumentation",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -1231,11 +1271,13 @@
                   "check": "check_page_title",
                   "technologies": [
                     "axe-core",
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
-                    "page"
+                    "page",
+                    "alfa"
                   ]
                 }
               ],
@@ -1286,12 +1328,14 @@
                   "technologies": [
                     "axe-core",
                     "Playwright",
-                    "NVDA"
+                    "NVDA",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
                     "page",
-                    "screen_reader"
+                    "screen_reader",
+                    "alfa"
                   ]
                 }
               ],
@@ -1366,10 +1410,12 @@
                 {
                   "check": "check_focus_visible",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
-                    "keyboard"
+                    "keyboard",
+                    "alfa"
                   ]
                 }
               ],
@@ -1416,11 +1462,13 @@
                 {
                   "check": "check_link_purpose_link_only",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "page",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -1601,13 +1649,15 @@
                   "check": "check_label_in_name",
                   "technologies": [
                     "NVDA",
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "screen_reader",
                     "keyboard",
                     "forms",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -1654,10 +1704,12 @@
                 {
                   "check": "check_target_size_enhanced",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
-                    "targets"
+                    "targets",
+                    "alfa"
                   ]
                 }
               ],
@@ -1732,11 +1784,13 @@
                   "check": "check_target_size_minimum",
                   "technologies": [
                     "Playwright",
-                    "axe-core"
+                    "axe-core",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "targets",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -1771,11 +1825,13 @@
                   "check": "check_page_language",
                   "technologies": [
                     "axe-core",
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
-                    "page"
+                    "page",
+                    "alfa"
                   ]
                 }
               ],
@@ -1798,11 +1854,13 @@
                   "check": "check_language_of_parts",
                   "technologies": [
                     "axe-core",
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
-                    "page"
+                    "page",
+                    "alfa"
                   ]
                 }
               ],
@@ -2031,13 +2089,15 @@
                 {
                   "check": "check_change_on_request",
                   "technologies": [
-                    "Playwright"
+                    "Playwright",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "page",
                     "instrumentation",
                     "forms",
-                    "axe"
+                    "axe",
+                    "alfa"
                   ]
                 }
               ],
@@ -2337,12 +2397,14 @@
                   "technologies": [
                     "axe-core",
                     "Playwright",
-                    "NVDA"
+                    "NVDA",
+                    "Siteimprove Alfa"
                   ],
                   "probes": [
                     "axe",
                     "disclosures",
-                    "screen_reader"
+                    "screen_reader",
+                    "alfa"
                   ]
                 }
               ],

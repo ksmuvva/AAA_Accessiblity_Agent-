@@ -64,7 +64,7 @@ async def collect(audit: AuditContext, name: str) -> ProbeResult:
 # Sweep order: read-only measurements first, then probes that resize the viewport or move focus, then probes
 # that interact with the page (and restore it). The screen reader reuses the keyboard probe's Tab stops.
 PROBE_ORDER = [
-    "axe", "page", "instrumentation", "nav", "media", "motion", "contrast",
+    "axe", "alfa", "page", "instrumentation", "nav", "media", "motion", "contrast",
     "text_spacing", "reflow", "targets", "keyboard", "zoom", "orientation", "flashing", "screen_reader",
     "skip_link", "sliders", "hover", "disclosures", "shortcuts", "pointer", "forms", "timeouts",
 ]
@@ -72,7 +72,7 @@ PROBE_ORDER = [
 
 def _load() -> None:
     # Importing the modules runs their @probe decorators.
-    from agent_access.probes import axe, contrast, forms, interaction, keyboard, layout, page, screen_reader  # noqa: F401
+    from agent_access.probes import alfa, axe, contrast, forms, interaction, keyboard, layout, page, screen_reader  # noqa: F401
 
     assert set(PROBES) == set(PROBE_ORDER), set(PROBES) ^ set(PROBE_ORDER)
 
