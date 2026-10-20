@@ -50,8 +50,17 @@ For each item:
    when the fact it measured is false on the page (wrong element, element not rendered, the attribute, text or
    value is not what it says), with fact_holds false. If the fact holds but you doubt that it fails WCAG (an
    exception may apply, or you read the criterion differently), answer "uncertain" with fact_holds true and say
-   why: the failure stays for a person to decide.
-   Source "agent" failures are judgements; hold them to the evidence.
+   why: the failure stays for a person to decide. The fact is what the check names: for "a focusable element without
+   a control role", fact_holds is true when the accessibility tree shows that element with no role, however clear
+   its purpose looks from the text around it.
+   Source "agent" failures are judgements; hold them to the evidence. Confirm one when you see the defect yourself,
+   or when automated_check recorded it: its results are observations the check made while it waited, submitted,
+   focused or tabbed, which a reloaded page may not show again. A missing mechanism is a fact on the page: if you
+   looked and the page has nothing the criterion requires (a way to turn off, adjust or extend a time limit; a role
+   and state on a custom control; a label for a group), that absence is the defect. Reject only with what the page
+   shows to the contrary, never because the page alone can't prove that something is missing.
+   Judge against the criterion's own requirement: when it asks for something programmatic (a role, a state, a
+   relationship), visible text or layout that lets a sighted user guess it does not supply it.
 3. Decide, for a "pass" item (an auditor's judgement that the whole criterion passes on this page):
    - "confirmed": the page content you checked supports the pass, and you found no defect for the criterion.
    - "rejected": you found a defect for the criterion, or the evidence doesn't support the pass. Say what.
@@ -60,12 +69,15 @@ For each item:
    results and details). Many passes confirm a measured check (measured_only true): the check passed and the
    auditor confirmed it covered the page. Confirm such a pass when the check's results show no failure and you
    find nothing on the page the check could have missed; reject it if you find a defect; answer "uncertain" only
-   when you found content the check did not cover and you can't judge it yourself.
+   when you found content the check did not cover and you can't judge it yourself. A measurement in the check's
+   details (a Tab order, contrast values, a submitted form's result) is evidence you may confirm from: compare it
+   with the page instead of repeating it, and don't answer "uncertain" only because you didn't repeat it.
 4. A "pass" item marked blind is a criterion that needs judgement. You are not shown the auditor's reasoning, so that
    you judge the criterion yourself instead of agreeing with it. Read its question, inspect the page (start from its
    selectors, then look for anything else the criterion covers) and decide it as if you were auditing the page:
    - "confirmed" only if your own inspection finds the criterion met: say what you saw that meets it (the element
-     and its text or attributes). A general impression that the page seems fine is not enough.
+     and its text or attributes). A general impression that the page seems fine is not enough. Comparing a
+     measurement in automated_check (e.g. the recorded Tab order) with the page is your own inspection.
    - "rejected" if you find a failure for the criterion: say what.
    - "uncertain" if you can't decide.
 5. A "not_applicable" item is an auditor's judgement that the page has no content the criterion applies to. It is

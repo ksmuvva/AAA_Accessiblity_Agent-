@@ -391,3 +391,20 @@ def test_a_verdict_that_contradicts_what_the_reviewer_saw_counts_as_uncertain():
     assert disputed.status is Status.FAIL and disputed.review_verdict == "uncertain" and "contradicted" in disputed.review_note
     assert unsaid.status is Status.FAIL and unsaid.review_verdict == "uncertain"
     assert wrong.status is Status.NEEDS_REVIEW and wrong.review_verdict == "rejected"
+
+
+def test_the_reviewer_is_told_what_counts_as_seen():
+    """E2's reviewer misses: it rejected a measured 4.1.2 fail on a span acting as a switch because its purpose was clear
+    from nearby text (fact_holds false, though the tree showed no role), rejected a 2.2.1 fail because "the page alone"
+    couldn't prove no way to extend the limit existed, and left a focus-order pass uncertain because it hadn't
+    repeated the recorded Tab walk. Its instructions now settle each of those."""
+    from agents import RunContextWrapper
+    from agent_access.team.reviewer import build_reviewer
+
+    reviewer = build_reviewer()
+    text = reviewer.instructions(RunContextWrapper(context=AuditContext()), reviewer)
+    assert "fact_holds is true when the accessibility tree shows that element with no role" in text   # the fact
+    assert "that absence is the defect" in text and "can't prove that something is missing" in text
+    assert "or when automated_check recorded it" in text                        # an agent fail the check observed
+    assert "visible text or layout that lets a sighted user guess it does not supply it" in text
+    assert "don't answer \"uncertain\" only because you didn't repeat it" in text
