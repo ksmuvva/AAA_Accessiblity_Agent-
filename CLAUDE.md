@@ -81,11 +81,11 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - veraPDF (optional, for linked PDFs): install its CLI (it needs Java 11+) and put `verapdf` on PATH.
 - Config in `.env`: `OPENAI_API_KEY`, and optionally `OPENAI_MODEL` and `OPENAI_REVIEWER_MODEL`. The agents read nothing else from it; resolution happens in `team.orchestrator.run_audit`.
 - Run with `.venv/Scripts/python.exe main.py URL`. See `--help` for all flags.
-  - Default `--mode agent`: the planner agent owns the run within `--budget-calls` / `--budget-minutes` / `--max-pages` (`--pages` is the minimum). `--mode code` is the fixed per-page flow. The agents **click and type on the site by default** (writes stay blocked unless `--allow-submit`); `--no-interaction` forbids it. Also `--memory PATH|off`, `--delegation handoffs|tools`, `--measurement eager|lazy`, `--sample wcag-em [--seed N]`, `--sr-agent`.
+  - Default `--mode agent`: the planner agent owns the run within `--budget-calls` / `--budget-minutes` / `--max-pages` (`--pages` is the minimum). `--mode code` is the fixed per-page flow. The agents **click and type on the site by default** (writes stay blocked unless `--allow-submit`); `--no-interaction` forbids it. Also `--memory PATH|off`, `--delegation handoffs|tools`, `--measurement eager|lazy`, `--sample wcag-em [--seed N]`, `--sr-agent`, `--uk-statement`.
   - `--screen-reader emulated` runs headless and silent. The default `auto` uses real NVDA if it's installed, which **opens a visible browser and speaks aloud**.
   - Traces (page content and screenshots) go to OpenAI only with `--trace`; `--no-trace` is a hidden no-op.
   - Pages behind a sign-in: `main.py LOGIN_URL --save-login session.json` (a visible browser; sign in, press Enter), then `--storage-state session.json`. A page that redirects to a sign-in form is a warning (session expired).
-  - Output goes to `reports/<host>-<timestamp>/` as `report.md`, `report.json` and `screenshots/`.
+  - Output goes to `reports/<host>-<timestamp>/` as `report.md`, `report.json`, `acr.html` and `screenshots/`. `acr.html` (`acr.render_acr`) is a draft Accessibility Conformance Report in the VPAT 2.5Rev WCAG layout, mapped from the site report; a criterion the audit didn't decide is "Not determined" below AAA, because the VPAT allows "Not Evaluated" only at AAA.
 - Tests: `python -m pytest`, about 5 min (`pytest.ini` runs files in parallel: `-n 6 --dist loadscope`; serial is about 10 min).
   - One test: `python -m pytest -n 0 tests/test_wcag_tools.py::test_bad_page_failures` (`-n 0` skips starting workers).
   - Tests use local fixtures, headless Chromium and the emulated screen reader. They make no OpenAI calls and don't start NVDA. Other Chromium-heavy work on the machine slows them a lot.
@@ -146,6 +146,7 @@ tests/                       pytest suite + fixtures/ (pytest.ini: pythonpath = 
 5. **Process** (`--process`): a separate lead run from the restored first page. **Site tests** re-run 3.2.3/3.2.4/3.2.6 on every page once all pages exist.
 6. **Coverage warnings** (pages not done, specialist leftovers) go to `outcome.warnings` and the report.
    **Linked PDFs** (`documents.check_documents`, both modes, after the review): same-site PDFs the pages link to are fetched and validated against PDF/UA-1 by veraPDF, each its own item in the report's "Linked documents", not merged into the criteria. Without veraPDF they are a coverage warning.
+   **UK accessibility statement** (`statement.check_statement`, both modes, after the report is compiled): on a UK public sector host (`UK_PUBLIC_SECTOR`) or with `--uk-statement`, the statement's link is found on the homepage (or the first audited pages: the page probe keeps only 200 links) and read in a fork's tab, never an audited page (the context's route aborts pages it didn't open). Each part of GOV.UK's model statement is found by its wording, and the claim is compared with the A/AA failures. Its own report section; a check that couldn't run is a coverage warning.
 7. **Reviewer** (its own model if set): restores each page and verifies every `FAIL` and every agent `PASS` or `NOT_APPLICABLE` in batches of 25. Agent items carry `automated_check` (the rule's results and details).
 8. **Summary writer** sees only the reviewed data and the warnings. Every stage tolerates failure; errors go to `outcome.errors`.
 

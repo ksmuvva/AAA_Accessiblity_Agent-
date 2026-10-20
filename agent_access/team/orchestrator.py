@@ -31,6 +31,7 @@ from agent_access.agent_tools.browser_tools import open_url, page_fingerprint, s
 from agent_access.context import AuditContext, base_page_key, is_state_key
 from agent_access.models import AuditSummary, PagePick, SiteReport
 from agent_access.documents import check_documents
+from agent_access.statement import check_statement
 from agent_access.sampling import wcag_em_sample
 from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
 from agent_access.agent_tools.report_tools import NEEDS_REVIEW_RULE, compile_site_report
@@ -76,6 +77,8 @@ class AuditOutcome:
     sample: dict | None = None
     # Linked PDFs and veraPDF's results for them (documents.check_documents).
     documents: list[dict] = field(default_factory=list)
+    # The UK accessibility statement's assessment (statement.check_statement), when the check applies.
+    statement: dict | None = None
 
 
 def _err(stage: str, exc: Exception) -> str:
@@ -356,6 +359,8 @@ async def run_audit(
     outcome.report = compile_site_report(audit)
     if outcome.report is None:
         return _finish(audit, outcome)
+    outcome.statement, unchecked = await check_statement(audit, outcome.report)
+    outcome.warnings += unchecked
 
     progress("Summary writer: writing summary...")
     try:

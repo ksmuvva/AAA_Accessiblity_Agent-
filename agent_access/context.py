@@ -113,6 +113,8 @@ class AuditContext:
     delegation: Delegation = "handoffs"
     # The screen reader user agent (team/sr_user.py, --sr-agent): None is off; a set is on, holding the pages it used.
     sr_agent: set[str] | None = None
+    # Check the UK accessibility statement (statement.py) even when the host isn't a UK public sector one.
+    uk_statement: bool = False
     catalogue: Catalogue = field(default_factory=load_catalogue)
     findings: list[Finding] = field(default_factory=list)
     current_url: str | None = None

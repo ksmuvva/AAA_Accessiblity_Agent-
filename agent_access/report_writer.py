@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agent_access.acr import render_acr
 from agent_access.models import CriterionResult, Finding, Status
 
 if TYPE_CHECKING:
@@ -109,6 +110,24 @@ def _criteria_sections(criteria: list[CriterionResult], multi: bool, heading_pre
     return lines
 
 
+FOUND_LABEL = {True: "Yes", False: "Not found", None: "n/a"}
+
+
+def _statement(s: dict) -> list[str]:
+    """The UK accessibility statement's assessment (statement.check_statement)."""
+    lines = ["## UK accessibility statement", "",
+             "Checked against GOV.UK's model statement for the Public Sector Bodies (Websites and Mobile Applications) "
+             "(No. 2) Accessibility Regulations 2018. Each part is found by its usual wording, so confirm a \"not "
+             "found\" by reading the statement. This is not part of the WCAG criteria.", ""]
+    if not s["checked"]:
+        return lines + [f"Not checked: {_md_escape(s['reason'])}.", ""]
+    lines += [f"**Statement:** {_md_escape(s['url'])} (linked from {_md_escape(s['linked_from'])})  ",
+              f"**Claims:** {s['claim'] + ' compliant' if s['claim'] else 'no compliance status'}", "",
+              "| Requirement | Found | Detail |", "|---|---|---|"]
+    lines += [f"| {r['requirement']} | {FOUND_LABEL[r['found']]} | {_md_escape(r['detail'])} |" for r in s["checks"]]
+    return lines + [""]
+
+
 def _plan_line(entry: dict) -> str:
     action = entry.get("action", "?")
     rest = ", ".join(f"{k}={v}" for k, v in entry.items() if k != "action" and v not in (None, [], ""))
@@ -163,6 +182,8 @@ def render_markdown(outcome: AuditOutcome) -> str:
             lines += [f"  - {r['clause']}-{r['test']}" + (f" (WCAG {', '.join(r['criteria'])})" if r["criteria"] else "")
                       + f": {_md_escape(r['description'])} ({r['checks']} check(s))" for r in failed]
         lines.append("")
+    if statement := getattr(outcome, "statement", None):
+        lines += _statement(statement)
 
     plan_log, budget = getattr(outcome, "plan_log", []), getattr(outcome, "budget_used", None)
     tripwires = getattr(outcome, "tripwires", [])
@@ -234,10 +255,11 @@ def render_markdown(outcome: AuditOutcome) -> str:
     return "\n".join(lines)
 
 
-def write_reports(out_dir: Path, outcome: AuditOutcome) -> tuple[Path, Path]:
+def write_reports(out_dir: Path, outcome: AuditOutcome) -> tuple[Path, Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / "report.json"
     md_path = out_dir / "report.md"
+    acr_path = out_dir / "acr.html"
     payload = {
         "summary": outcome.summary.model_dump(mode="json") if outcome.summary else None,
         "lead_notes": outcome.lead_notes,
@@ -253,8 +275,10 @@ def write_reports(out_dir: Path, outcome: AuditOutcome) -> tuple[Path, Path]:
         "memory": getattr(outcome, "memory", None),
         "sample": getattr(outcome, "sample", None),
         "documents": getattr(outcome, "documents", []),
+        "statement": getattr(outcome, "statement", None),
         "report": outcome.report.model_dump(mode="json"),
     }
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     md_path.write_text(render_markdown(outcome), encoding="utf-8")
-    return json_path, md_path
+    acr_path.write_text(render_acr(outcome), encoding="utf-8")
+    return json_path, md_path, acr_path
