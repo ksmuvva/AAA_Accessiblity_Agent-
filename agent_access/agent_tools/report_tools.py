@@ -167,7 +167,9 @@ def report_notes(audit: AuditContext) -> list[str]:
            + ("; in lazy measurement only the ones an agent chose to check were tested." if audit.measurement == "lazy"
               else " and were also tested.") if beyond else ""),
         "Full conformance also requires evaluating complete pages and complete processes.",
-    ]
+    ] + ([] if audit.verdicts_reviewed else
+         ["Each pass, fail or not-applicable an agent recorded is the auditor agent's judgement from the checks' "
+          "evidence; no second agent re-checked it."])
 
 
 UNCONFIRMED_NOT_APPLICABLE = ("The automated check found nothing this criterion applies to, but no auditor confirmed it; "
@@ -199,8 +201,9 @@ def _criterion_results(audit: AuditContext, page_url: str, rules) -> list[Criter
                 "findings": [], "inherited_from": base_page_key(page_url)}))
             continue
         raw = [f for f in page_findings if f.wcag_criterion == rule.wcag_criterion]
-        unconfirmed = [f for f in raw if f.source == "agent" and f.status in DECIDED and f.review_verdict != "confirmed"]
-        rule_findings = [_reported(f) for f in raw]
+        unconfirmed = [f for f in raw if f.source == "agent" and f.status in DECIDED and f.review_verdict != "confirmed"
+                       and audit.verdicts_reviewed]
+        rule_findings = [_reported(f) for f in raw] if audit.verdicts_reviewed else raw
         status, summary = _criterion_status(rule_findings)
         measured_pass = any(f.status is Status.PASS and f.source != "agent" for f in rule_findings)
         if status is Status.NOT_APPLICABLE and not any(f.source == "agent" for f in rule_findings):
@@ -208,7 +211,8 @@ def _criterion_results(audit: AuditContext, page_url: str, rules) -> list[Criter
         elif status is Status.NOT_APPLICABLE and measured_pass:
             status, summary = Status.NEEDS_REVIEW, "An auditor found nothing this applies to, but its check measured content."
         elif status is Status.PASS:
-            summary = "Passed: an auditor's judgement, confirmed by the reviewer."
+            summary = ("Passed: an auditor's judgement, confirmed by the reviewer." if audit.verdicts_reviewed
+                       else "Passed: the auditor's judgement from the check's evidence.")
         elif status is Status.NEEDS_REVIEW and unconfirmed:
             why = sorted({(f.review_verdict or "not reviewed").replace("_", " ") for f in unconfirmed})
             summary = f"{len(unconfirmed)} auditor judgement(s) not confirmed on review ({', '.join(why)}); a human must decide."

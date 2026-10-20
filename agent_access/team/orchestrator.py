@@ -284,6 +284,14 @@ async def run_audit(
             progress(f"NVDA didn't start ({type(exc).__name__}); screen-reader checks will use the emulated backend.")
             audit.screen_reader = "emulated"
 
+    if mode == "single":   # one agent calls the WCAG checks itself (auditor.py); no sweep in code first
+        from agent_access.auditor import audit_site
+
+        single = await audit_site(audit, start_url=start_url, pages=pages, model=model, progress=progress,
+                                  max_turns=max_turns)
+        single.errors = outcome.errors + single.errors
+        return _finish(audit, single)
+
     # The first page: preloaded (e.g. --html-file) or start_url. Either way it gets the full sweep in code.
     if audit.has_page():
         first = audit.current_url

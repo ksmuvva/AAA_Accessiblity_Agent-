@@ -135,7 +135,7 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None, calls_left
             audit.memory = memory
         if args.mode == "code":   # count model calls, up to what the run has left
             audit.budget = Budget(max_model_calls=calls_left, reserve_calls=0, max_minutes=10**9)
-        elif args.mode == "agent":   # the CLI's budget, capped by what the run has left
+        elif args.mode in ("agent", "single"):   # the CLI's budget, capped by what the run has left
             audit.budget = Budget(max_model_calls=min(calls_left, Budget.max_model_calls),
                                   reserve_calls=min(Budget.reserve_calls, calls_left // 4))
         await load_html_content(audit, html, "file:page.html")   # the case's file name would give the answers away
@@ -251,9 +251,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="memory store that false passes/fails are written to as lessons, or 'off'")
     parser.add_argument("--use-lessons", action="store_true",
                         help="let the team read past lessons while it audits (default: score without them)")
-    parser.add_argument("--mode", choices=["code", "agent", "baseline"], default="code",
-                        help="code (default): the fixed per-page flow; agent: the planner owns the run (the CLI "
-                             "default); baseline: the automated checks alone, no model")
+    parser.add_argument("--mode", choices=["code", "agent", "single", "baseline"], default="code",
+                        help="code (default): the fixed per-page flow; agent: the planner owns the run; single: one "
+                             "agent calls the checks (the CLI default); baseline: the automated checks alone, no model")
     parser.add_argument("--repeats", type=int, default=1, help="run each case this many times (default 1)")
     parser.add_argument("--max-calls", type=int, default=1000,
                         help="cost guard: model calls for the whole run, all cases and repeats (default 1000)")
