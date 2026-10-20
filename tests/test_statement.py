@@ -28,9 +28,21 @@ STALE = ('<html lang="en"><head><title>Accessibility statement</title></head><bo
          'statement was prepared on 1 January 2020.</p></main></body></html>')
 
 
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/help/moved.html":   # the statement moved to another site, which the audit doesn't open
+            self.send_response(302)
+            self.send_header("Location", "https://elsewhere.example/statement")
+            self.end_headers()
+        else:
+            super().do_GET()
+
+    def log_message(self, *args):
+        pass
+
+
 def serve(directory):
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
-    handler.log_message = lambda *args: None
+    handler = functools.partial(Handler, directory=str(directory))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, f"http://127.0.0.1:{server.server_address[1]}"
@@ -86,6 +98,13 @@ def test_no_statement_link_is_a_warning(tmp_path):
     assert "Not checked: no link to an accessibility statement" in report
 
 
+def test_a_redirect_off_the_site_is_not_followed(tmp_path):
+    base, found, warnings, _, _ = audit_statement(tmp_path, HOME.replace("accessibility-statement.html", "moved.html"))
+    assert found["reason"] == (f"{base}/help/moved.html could not be read (it redirects to https://elsewhere.example/"
+                               "statement, which the audit doesn't open: it is not on the audited site)")
+    assert warnings == [f"The UK accessibility statement was not checked: {found['reason']}."]
+
+
 def failing(*criteria: tuple[str, str]) -> SiteReport:
     results = [CriterionResult(rule_id=f"r{n}", wcag_criterion=n, title=t, level="A", status=Status.FAIL, summary="")
                for n, t in criteria]
@@ -94,12 +113,12 @@ def failing(*criteria: tuple[str, str]) -> SiteReport:
 
 def test_a_partial_compliance_statement_must_list_what_the_audit_failed():
     today = date.today()
-    text = (f"This website is partially compliant with the Web Content Accessibility Guidelines version 2.2 AA standard, "
+    text = (f"This website is partially compliant with the Web Content Accessibility Guidelines (WCAG) 2.2 AA standard, "
             f"due to the non-compliances listed below. Non-accessible content. Some images have no text alternative "
-            f"(WCAG 2.2 success criterion 1.1.1). The Public Sector Bodies (Websites and Mobile Applications) (No. 2) "
+            f"(success criterion 1.1.1). The Public Sector Bodies (Websites and Mobile Applications) (No. 2) "
             f"Accessibility Regulations 2018. Call 020 7946 0000. This statement was prepared on 3 March 2019. It was "
-            f"last reviewed on {today.day} {today.strftime('%B')} {today.year}. Accessibility tests by the Fares "
-            f"team were carried out on 1 May 2026.")
+            f"last reviewed on {today.day} {today.strftime('%B')} {today.year}. Accessibility tests against WCAG 2.2 "
+            f"AA were carried out on 1 May 2026.")
     links = [{"text": "contact the Equality Advisory and Support Service (EASS)",
               "href": "https://www.equalityadvisoryservice.com/"}]
     claim, rows = statement.assess(text, links, failing(("1.1.1", "Non-text Content"), ("2.4.7", "Focus Visible"),

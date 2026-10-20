@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from agent_access.agent_tools.browser_tools import refused
 from agent_access.context import AuditContext, is_state_key
@@ -23,6 +23,7 @@ from agent_access.models import CriterionResult, SiteReport, Status
 UK_PUBLIC_SECTOR = (".gov.uk", ".nhs.uk", ".nhs.scot", ".gov.scot", ".gov.wales", ".llyw.cymru", ".police.uk",
                     ".mod.uk", ".parliament.uk", ".ac.uk")
 PAGES_SEARCHED = 3
+MAX_REDIRECTS = 5
 MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
           "november", "december")
 _MONTH = "|".join(MONTHS)
@@ -86,7 +87,7 @@ def assess(text: str, links: list[dict], report: SiteReport, today: date) -> tup
     claim = m[1] if (m := re.search(r"\b(fully|partially|not) compliant\b", text)) else None
     row("Compliance status (fully, partially or not compliant)", claim is not None,
         f"{claim} compliant" if claim else "none of the three is stated")
-    versions = sorted(set(re.findall(r"(?:wcag|web content accessibility guidelines)\s*(?:version\s*)?(2\.[0-2])", text)))
+    versions = sorted(set(re.findall(r"(?:wcag|web content accessibility guidelines)\s*(?:\(wcag\)\s*)?(?:version\s*)?(2\.[0-2])", text)))
     row("Names WCAG 2.2", "2.2" in versions,
         "names WCAG " + ", ".join(versions) + ("" if "2.2" in versions else "; the model statement uses 2.2")
         if versions else "no WCAG version is named")
@@ -117,8 +118,9 @@ def assess(text: str, links: list[dict], report: SiteReport, today: date) -> tup
     linked = any((urlparse(h).hostname or "").endswith(("equalityadvisoryservice.com", "equalityni.org")) for h in hrefs)
     row("Enforcement procedure: the EHRC, with a link to EASS (the ECNI in Northern Ireland)", bool(named and linked),
         "" if named and linked else "the enforcement body isn't named" if not named else "no link to EASS or the ECNI")
-    row("How the website was tested", bool(re.search(r"\b(?:was|were) (?:last )?tested\b|\btest(?:s|ing)?\b[^.]{0,150}"
-                                                     r"\bcarried out\b|\bhow we tested\b|\bwe tested\b", text)))
+    # "Tests ... were carried out" within one sentence, where "WCAG 2.1" doesn't end it.
+    tested = r"\b(?:was|were) (?:last )?tested\b|\btest(?:s|ing)?\b(?:(?!\. ).){0,150}\bcarried out\b|\b(?:how )?we tested\b"
+    row("How the website was tested", bool(re.search(tested, text)))
     failing = [c for c in (*report.criteria, *report.beyond_target) if c.status is Status.FAIL and c.level in ("A", "AA")]
     if claim == "fully":
         row("Agrees with this audit's Level A and AA failures", not failing,
@@ -133,7 +135,21 @@ def assess(text: str, links: list[dict], report: SiteReport, today: date) -> tup
     return claim, rows
 
 
-async def _read(page, url: str, script: str):
+async def _read(audit: AuditContext, page, url: str, script: str):
+    """`script`'s result on `url`, loaded in the tab. The fork opens no guard window, so page.goto would follow a
+    redirect unchecked: the hops are followed first by API request, each passing refused() before it is requested
+    (as documents._fetch does)."""
+    for _ in range(MAX_REDIRECTS):
+        response = await page.context.request.get(url, timeout=30_000, max_redirects=0)
+        location = response.headers.get("location") if 300 <= response.status < 400 else None
+        await response.dispose()
+        if not location:
+            break
+        url = urljoin(url, location)
+        if why := refused(audit, url):
+            raise RuntimeError(f"it redirects to {url[:100]}, which the audit doesn't open: {why}")
+    else:
+        raise RuntimeError("too many redirects")
     response = await page.goto(url, wait_until="load", timeout=30_000)
     if response is not None and response.status >= 400:
         raise RuntimeError(f"HTTP {response.status}")
@@ -154,7 +170,7 @@ async def check_statement(audit: AuditContext, report: SiteReport) -> tuple[dict
         failed: dict[str, str] = {}
         for url in searched:
             try:
-                if found := statement_link(await _read(page, url, js("statement/links")), url):
+                if found := statement_link(await _read(audit, page, url, js("statement/links")), url):
                     result.update(url=found, linked_from=url)
                     break
             except Exception as exc:   # a page that won't load: try the next
@@ -168,10 +184,10 @@ async def check_statement(audit: AuditContext, report: SiteReport) -> tuple[dict
             result["reason"] = f"its link goes to {result['url']}, which the audit doesn't open ({why})"
         else:
             try:
-                text = await _read(page, result["url"], "() => document.body ? document.body.innerText : ''")
+                text = await _read(audit, page, result["url"], "() => document.body ? document.body.innerText : ''")
                 links = await page.evaluate(js("statement/links"))
             except Exception as exc:
-                result["reason"] = f"{result['url']} could not be read ({type(exc).__name__}: {str(exc)[:120]})"
+                result["reason"] = f"{result['url']} could not be read ({(str(exc).splitlines() or [type(exc).__name__])[0][:160]})"
             else:
                 result["claim"], result["checks"] = assess(text, links, report, date.today())
                 result["checked"] = True
