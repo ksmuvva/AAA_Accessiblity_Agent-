@@ -162,11 +162,13 @@ def test_full_team_run(tmp_path):
     assert outcome.summary.top_issues[0].wcag_criterion == "1.1.1"
     assert outcome.lead_notes == ["No video on the page to play."]
 
-    json_path, md_path = write_reports(tmp_path, outcome)
+    json_path, md_path, acr_path = write_reports(tmp_path, outcome)
     md = md_path.read_text(encoding="utf-8")
     assert "Reviewer (rejected)" in md and "Reviewer (confirmed)" in md and "## Auditor notes" in md
     assert "## Coverage warnings" in md and "failure(s) re-checked" in md
     assert json.loads(json_path.read_text(encoding="utf-8"))["review_log"]
+    # The confirmed failure fails on the one audited page.
+    assert "1.1.1 Non-text Content (Level A)</th><td>Does Not Support</td>" in acr_path.read_text(encoding="utf-8")
 
 
 def judge_everything_open(input):

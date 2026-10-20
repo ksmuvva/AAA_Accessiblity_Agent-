@@ -1,0 +1,127 @@
+"""An Accessibility Conformance Report (ACR) in the layout of ITI's VPAT 2.5Rev WCAG edition: the header, the
+applicable standards, the conformance terms, then one table per WCAG 2.2 level in scope, each criterion with a
+conformance level and remarks. One self-contained HTML file (acr.html) that opens in a browser or Word and prints to
+PDF. It is a draft for a person to complete: the contact is a placeholder, and a criterion the audit didn't decide is
+"Not determined" until someone does, because the VPAT allows "Not Evaluated" only at Level AAA.
+
+Mapping from the report (where a pass or a not-applicable is already one the reviewer confirmed): pass -> Supports;
+not applicable -> Not Applicable; fail -> Does Not Support when it fails on more than half of the audited pages it
+applies to, else Partially Supports; anything else -> Not Evaluated at AAA, Not determined below.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from html import escape
+from typing import TYPE_CHECKING
+from urllib.parse import urlparse
+
+from agent_access.models import AuditReport, CriterionResult, Status
+
+if TYPE_CHECKING:
+    from agent_access.team.orchestrator import AuditOutcome
+
+TERMS = (
+    ("Supports", "The functionality of the product has at least one method that meets the criterion without known "
+                 "defects or meets with equivalent facilitation."),
+    ("Partially Supports", "Some functionality of the product does not meet the criterion."),
+    ("Does Not Support", "The majority of product functionality does not meet the criterion."),
+    ("Not Applicable", "The criterion is not relevant to the product."),
+    ("Not Evaluated", "The product has not been evaluated against the criterion. This can only be used in WCAG Level "
+                      "AAA criteria."),
+)
+NOT_DETERMINED = "Not determined"
+LEVELS = ("A", "AA", "AAA")
+STYLE = """body{font:16px/1.5 system-ui,sans-serif;color:#1b1b1b;background:#fff;max-width:72rem;margin:0 auto;padding:1rem}
+table{border-collapse:collapse;width:100%;margin:0 0 2rem}caption{text-align:left;font-weight:700;padding:.5rem 0}
+th,td{border:1px solid #6b6b6b;padding:.4rem .6rem;text-align:left;vertical-align:top;overflow-wrap:anywhere}thead th{background:#e8e8e8}
+dt{font-weight:700;margin-top:.75rem}dd{margin:0;overflow-wrap:anywhere}.draft{border:2px solid #1b1b1b;padding:.5rem 1rem}"""
+
+
+def conformance(c: CriterionResult, pages: list[AuditReport]) -> str:
+    if c.status is Status.PASS:
+        return "Supports"
+    if c.status is Status.NOT_APPLICABLE:
+        return "Not Applicable"
+    if c.status is Status.FAIL:
+        applies, failing = _page_results(c, pages)
+        return "Does Not Support" if 2 * failing > applies else "Partially Supports"
+    return "Not Evaluated" if c.level == "AAA" else NOT_DETERMINED
+
+
+def _page_results(c: CriterionResult, pages: list[AuditReport]) -> tuple[int, int]:
+    """Pages the criterion applies to, and those it fails on (a state's inherited result counts once, on its page)."""
+    results = [r for p in pages for r in p.criteria if r.wcag_criterion == c.wcag_criterion
+               and r.inherited_from is None and r.status is not Status.NOT_APPLICABLE]
+    return len(results), sum(r.status is Status.FAIL for r in results)
+
+
+def _remarks(c: CriterionResult, term: str, pages: list[AuditReport]) -> str:
+    if c.status is not Status.FAIL:
+        return escape(c.summary) + (" A person must decide this before the report is final." if term == NOT_DETERMINED else "")
+    applies, failing = _page_results(c, pages)
+    shown = [f for f in c.findings if f.status is Status.FAIL][:3]
+    items = "".join(f"<li>{escape(f.description)} ({escape(f.page_url)})</li>" for f in shown)
+    return f"Fails on {failing} of {applies} audited page(s)." + (f"<ul>{items}</ul>" if items else "")
+
+
+def _table(number: int, level: str, criteria: list[CriterionResult], pages: list[AuditReport]) -> str:
+    rows = "".join(
+        f'<tr><th scope="row">{escape(c.wcag_criterion)} {escape(c.title)} (Level {level})</th>'
+        f"<td>{term}</td><td>{_remarks(c, term, pages)}</td></tr>"
+        for c, term in ((c, conformance(c, pages)) for c in criteria))
+    return (f"<table><caption>Table {number}: Success Criteria, Level {level}</caption><thead><tr>"
+            '<th scope="col">Criteria</th><th scope="col">Conformance Level</th>'
+            f'<th scope="col">Remarks and Explanations</th></tr></thead><tbody>{rows}</tbody></table>')
+
+
+def render_acr(outcome: AuditOutcome) -> str:
+    report = outcome.report
+    in_scope = LEVELS[:LEVELS.index(report.target_level) + 1]
+    criteria = report.criteria   # every criterion up to the target
+    undecided = sum(conformance(c, report.pages) == NOT_DETERMINED for c in criteria)
+    urls = [p.page_url for p in report.pages]
+    product = next((urlparse(u).netloc for u in urls if u.startswith(("http://", "https://"))), urls[0])
+    today = date.today().isoformat()
+    notes = [f"A draft generated by Agent_Access from an automated and agent-assisted audit on {today}. Check every "
+             "row before publishing it."
+             + (f" {undecided} {'criterion is' if undecided == 1 else 'criteria are'} {NOT_DETERMINED}, for a person to "
+                "decide." if undecided else ""),
+             "4.1.1 Parsing is not listed: WCAG 2.2 removed it."]
+    if outcome.warnings:
+        notes.append(f"The audit reported {len(outcome.warnings)} coverage warning(s); see report.md.")
+    methods = ("Automated checks and AI agent judgements in Chromium, with every failure and every judged pass or "
+               "not-applicable re-checked by a reviewer agent. Tools: "
+               + "; ".join(f"{k}: {v}" for k, v in outcome.engines.items()) + "." if outcome.engines else
+               "Automated checks and AI agent judgements in Chromium.")
+    header = "".join(f"<dt>{label}</dt><dd>{value}</dd>" for label, value in (
+        ("Name of Product/Version", escape(product)),
+        ("Report Date", today),
+        ("Product Description", "The website at " + escape(urls[0]) + ". Pages audited:<ul>"
+         + "".join(f"<li>{escape(u)}</li>" for u in urls) + "</ul>"),
+        ("Contact Information", "[Add the name, email and phone of the person responsible for this report.]"),
+        ("Notes", "<ul>" + "".join(f"<li>{escape(n)}</li>" for n in notes) + "</ul>"),
+        ("Evaluation Methods Used", escape(methods)),
+    ))
+    included = "<br>".join(f"Level {lvl} ({'Yes' if lvl in in_scope else 'No'})" for lvl in LEVELS)
+    tables = "".join(_table(i, lvl, [c for c in criteria if c.level == lvl], report.pages)
+                     for i, lvl in enumerate(in_scope, 1))
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(product)} Accessibility Conformance Report</title><style>{STYLE}</style></head><body><main>
+<h1>{escape(product)} Accessibility Conformance Report</h1>
+<p>WCAG Edition (Based on VPAT&reg; Version 2.5Rev)</p>
+<p class="draft"><strong>Draft.</strong> Add the contact information and decide every row marked {NOT_DETERMINED}
+before publishing this report.</p>
+<dl>{header}</dl>
+<h2>Applicable Standards/Guidelines</h2>
+<table><caption>Standards and guidelines this report covers</caption><thead><tr><th scope="col">Standard/Guideline</th>
+<th scope="col">Included In Report</th></tr></thead><tbody><tr><th scope="row">Web Content Accessibility Guidelines 2.2
+(https://www.w3.org/TR/WCAG22/)</th><td>{included}</td></tr></tbody></table>
+<h2>Terms</h2>
+<dl>{"".join(f"<dt>{t}</dt><dd>{d}</dd>" for t, d in TERMS)}</dl>
+<h2>WCAG 2.2 Report</h2>
+{tables}
+</main><footer><p>The VPAT name and template are registered service marks of the Information Technology Industry Council
+(ITI).</p></footer></body></html>
+"""

@@ -56,6 +56,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sr-agent", action="store_true",
                         help="also run the screen reader user on every page: an agent that hears only the screen reader "
                              "and uses only keys, and records where a blind user gets stuck (more model calls per page)")
+    parser.add_argument("--uk-statement", action="store_true",
+                        help="check the site's accessibility statement against the UK public sector regulations "
+                             "(automatic on UK public sector domains such as .gov.uk and .nhs.uk)")
     parser.add_argument("--no-interaction", action="store_true",
                         help="forbid the agents' own clicking, typing and key presses; by default they explore the site "
                              "(requests that change data stay blocked unless --allow-submit). The automated checks "
@@ -165,7 +168,7 @@ async def run(args: argparse.Namespace) -> int:
     async with AuditContext(headless=not headed, allow_interaction=not args.no_interaction, output_dir=out_dir,
                             target_level=args.level, screen_reader=args.screen_reader,
                             allowed_writes=tuple(args.allow_submit or ()), tracing=args.trace,
-                            storage_state=args.storage_state) as audit:
+                            storage_state=args.storage_state, uk_statement=args.uk_statement) as audit:
         configure_agentic(audit, args, progress)
         preloaded = None
         if args.html_file:
@@ -199,7 +202,7 @@ async def run(args: argparse.Namespace) -> int:
             print(e, file=sys.stderr)
         return 1
 
-    json_path, md_path = write_reports(out_dir, outcome)
+    json_path, md_path, acr_path = write_reports(out_dir, outcome)
     c = outcome.report.counts
     print(
         f"\nFail: {c['fail']}  Needs review: {c['needs_review']}  Not tested: {c['not_tested']}  "
@@ -222,7 +225,7 @@ async def run(args: argparse.Namespace) -> int:
         print(f"Coverage: {w}", file=sys.stderr)
     for e in outcome.errors:
         print(f"Warning: {e}", file=sys.stderr)
-    print(f"\nReport: {md_path}\nJSON:   {json_path}")
+    print(f"\nReport: {md_path}\nJSON:   {json_path}\nACR:    {acr_path} (a VPAT-style draft to complete)")
     return 4 if stopped else 0 if not outcome.errors else 1   # 4: incomplete, 1: a stage failed, 2: usage
 
 

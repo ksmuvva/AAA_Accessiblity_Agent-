@@ -43,6 +43,7 @@ from agent_access.context import AuditContext, is_state_key, run_parallel
 from agent_access.engine import run_site_tests, sweep_summary
 from agent_access.memory import MEMORY_TOOLS, remember_run
 from agent_access.documents import check_documents
+from agent_access.statement import check_statement
 from agent_access.sampling import wcag_em_sample
 from agent_access.team.guardrails import apply_guardrails, scrub
 from agent_access.team.runtime import run_config, settings
@@ -763,6 +764,9 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
     outcome.tool_runs = audit.tool_runs
     outcome.engines = dict(audit.engines)
     outcome.report = compile_site_report(audit)
+    if outcome.report is not None:
+        outcome.statement, unchecked = await check_statement(audit, outcome.report)
+        outcome.warnings += unchecked
     if outcome.report is not None and state.summary is None and not budget.hard_exhausted:
         progress("Summary writer: writing summary...")
         await _summarise(audit, state)
