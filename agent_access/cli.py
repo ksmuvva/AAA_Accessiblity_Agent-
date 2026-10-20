@@ -128,8 +128,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error(f"--storage-state: {args.storage_state} not found; create it with --save-login")
     if args.pages < 1:
         parser.error("--pages must be at least 1")
-    if args.mode == "single" and (args.sample or args.process or args.sr_agent):
-        parser.error("--sample, --process and --sr-agent need --mode agent or code")
+    if args.mode == "single" and (args.sample or args.process or args.sr_agent or args.measurement == "eager"):
+        parser.error("--sample, --process, --sr-agent and --measurement eager need --mode agent or code")
     if args.html_file and args.sample:
         parser.error("--sample only works with a URL")
     if args.seed is not None and not args.sample:
