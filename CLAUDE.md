@@ -75,9 +75,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## Commands
 
 - Install: `pip install -r requirements.txt`, then `playwright install chromium`.
+  - EA IRIS (optional, 2.3.1/2.3.2): build its example app (`cmake -DBUILD_EXAMPLE_APP=ON`), put `IrisApp` on PATH with the `appsettings.json` its build places beside it, and ffmpeg. It averages the frame's luminance, so it only adds fails; small flashes stay the screenshot sampler's (`probes/iris.py`).
   - NVDA (optional): `cd nvda_bridge && npm install && node node_modules/@guidepup/setup/lib/index.js setup && node node_modules/@guidepup/setup/lib/index.js install nvda`.
   - `package.json` pins `commander`/`undici` overrides, because Node is 20 here and the latest deps need 22.
-  - EA IRIS (optional, 2.3.1/2.3.2): build its example app (`cmake -DBUILD_EXAMPLE_APP=ON`), put `IrisApp` on PATH with the `appsettings.json` its build places beside it, and ffmpeg. It averages the frame's luminance, so it only adds fails; small flashes stay the screenshot sampler's (`probes/iris.py`).
 - Config in `.env`: `OPENAI_API_KEY`, and optionally `OPENAI_MODEL` and `OPENAI_REVIEWER_MODEL`. The agents read nothing else from it; resolution happens in `team.orchestrator.run_audit`.
 - Run with `.venv/Scripts/python.exe main.py URL`. See `--help` for all flags.
   - Default `--mode agent`: the planner agent owns the run within `--budget-calls` / `--budget-minutes` / `--max-pages` (`--pages` is the minimum). `--mode code` is the fixed per-page flow. The agents **click and type on the site by default** (writes stay blocked unless `--allow-submit`); `--no-interaction` forbids it. Also `--memory PATH|off`, `--delegation handoffs|tools`, `--measurement eager|lazy`, `--sample wcag-em [--seed N]`, `--sr-agent`.
