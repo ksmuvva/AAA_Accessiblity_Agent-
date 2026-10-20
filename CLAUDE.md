@@ -75,6 +75,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## Commands
 
 - Install: `pip install -r requirements.txt`, then `playwright install chromium`.
+  - EA IRIS (optional, 2.3.1/2.3.2): build its example app (`cmake -DBUILD_EXAMPLE_APP=ON`), put `IrisApp` on PATH with the `appsettings.json` its build places beside it, and ffmpeg. It averages the frame's luminance, so it only adds fails; small flashes stay the screenshot sampler's (`probes/iris.py`).
   - NVDA (optional): `cd nvda_bridge && npm install && node node_modules/@guidepup/setup/lib/index.js setup && node node_modules/@guidepup/setup/lib/index.js install nvda`.
   - `package.json` pins `commander`/`undici` overrides, because Node is 20 here and the latest deps need 22.
   - veraPDF (optional, for linked PDFs): install its CLI (it needs Java 11+) and put `verapdf` on PATH.

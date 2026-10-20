@@ -14,6 +14,7 @@ from agent_access.context import AuditContext
 from agent_access.jsassets import js
 from agent_access.probes import probe
 from agent_access.probes.contrast import relative_luminance
+from agent_access.probes.iris import iris_flashes
 
 TEXT_SPACING_CSS = (
     "* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }"
@@ -23,6 +24,8 @@ REFLOW_VIEWPORT = {"width": 320, "height": 256}
 PORTRAIT, LANDSCAPE = {"width": 390, "height": 844}, {"width": 844, "height": 390}
 ZOOM_FACTOR = 2
 FLASH_SECONDS = 2.0
+# 25% of a 10-degree visual field is about 21,824 px^2 at typical viewing distance (WCAG 2.3.1 note).
+FLASH_AREA_PX = 21_824
 FLASH_GRID = (40, 25)
 
 
@@ -122,10 +125,13 @@ async def flashing(audit: AuditContext) -> dict:
         rv, sat = zip(*(red_value(f[i]) for f in frames)) if frames else ((), ())
         red.append(_flash_count(rv, lambda j, a, b: abs(b - a) > 20 and (sat[j] or sat[j + 1])))
     duration = times[-1] if times else FLASH_SECONDS
+    if (iris := await iris_flashes(page, viewport, FLASH_AREA_PX)) and "error" not in iris:   # None unless installed
+        audit.engines["EA IRIS"] = f"EA IRIS (2.3.x: {iris['seconds']} s at {iris['fps']} fps; adds fails only)"
     return {"frames": len(frames), "fps": round(len(frames) / duration, 1) if duration else 0,
             "flashes_per_second": [f / duration for f in flashes] if duration else flashes,
             "red_flashes_per_second": [f / duration for f in red] if duration else red,
-            "cell_area_px": (viewport["width"] / cols) * (viewport["height"] / rows)}
+            "cell_area_px": (viewport["width"] / cols) * (viewport["height"] / rows),
+            "iris": iris}
 
 
 def red_value(rgb: tuple[int, int, int]) -> tuple[float, bool]:
