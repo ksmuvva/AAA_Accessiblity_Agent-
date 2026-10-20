@@ -115,6 +115,8 @@ class AuditContext:
     sr_agent: set[str] | None = None
     # Check the UK accessibility statement (statement.py) even when the host isn't a UK public sector one.
     uk_statement: bool = False
+    # False when no reviewer re-checks the agents' results (the single auditor, auditor.py): they stand as recorded.
+    verdicts_reviewed: bool = True
     catalogue: Catalogue = field(default_factory=load_catalogue)
     findings: list[Finding] = field(default_factory=list)
     current_url: str | None = None

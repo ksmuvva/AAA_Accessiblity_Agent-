@@ -144,8 +144,9 @@ def test_agent_mode_opens_the_sample_and_the_floor_audits_every_page(tmp_path):
 def test_sample_flags_need_a_url_and_always_get_a_seed():
     import pytest
     from agent_access.cli import parse_args
-    assert parse_args(["https://x.example", "--sample", "wcag-em", "--seed", "5"]).seed == 5
-    assert isinstance(parse_args(["https://x.example", "--sample", "wcag-em"]).seed, int)   # a new one, reported
+    team = ["--mode", "agent"]   # sampling is a team feature; the single auditor (the default) refuses it
+    assert parse_args(["https://x.example", *team, "--sample", "wcag-em", "--seed", "5"]).seed == 5
+    assert isinstance(parse_args(["https://x.example", *team, "--sample", "wcag-em"]).seed, int)   # a new one, reported
     for wrong in (["https://x.example", "--seed", "5"], ["--html-file", "page.html", "--sample", "wcag-em"]):
         with pytest.raises(SystemExit):
             parse_args(wrong)

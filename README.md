@@ -188,7 +188,7 @@ python main.py https://shop.example.com --process "add an item to the basket and
 | `--no-interaction` | Stop the agents from clicking, typing and following links. |
 | `--allow-submit URL_PREFIX` | Let data-changing requests (POST etc.) through to URLs starting with this prefix. Repeatable. |
 | `--measurement lazy\|eager` | `lazy` (default): the agents choose which checks run, and code runs the rest of the target level before a page is done. `eager`: all 86 checks run when a page loads. |
-| `--mode agent\|code` | `agent` (default): the planner runs the audit. `code`: a fixed per-page flow. |
+| `--mode single\|agent\|code` | `single` (default): one agent calls a WCAG check per criterion on each page and records the results. `agent`: the planner and its team. `code`: the team's fixed per-page flow. |
 | `--model`, `--reviewer-model` | Override the models from `.env`. |
 | `--memory PATH\|off` | SQLite memory of past runs on a site (default `reports/memory.sqlite`). |
 | `--trace` | Send agent traces (page content and screenshots) to OpenAI. Off by default. |

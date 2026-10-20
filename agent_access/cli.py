@@ -70,9 +70,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--allow-submit", action="append", metavar="URL_PREFIX",
                         help="let requests that change data (POST etc.) through to URLs starting with this prefix, "
                              "e.g. a test shop's checkout API; repeatable")
-    parser.add_argument("--mode", choices=["agent", "code"], default="agent",
-                        help="agent (default): the planner agent decides pages, order, flows, review and summary within "
-                             "the budget; code: the fixed per-page flow")
+    parser.add_argument("--mode", choices=["single", "agent", "code"], default="single",
+                        help="single (default): one agent calls a WCAG check per criterion on each page and records "
+                             "the results; agent: the planner agent and its team; code: the team's fixed per-page flow")
     parser.add_argument("--budget-calls", type=int, default=Budget.max_model_calls,
                         help=f"model calls the whole run may spend in agent mode (default {Budget.max_model_calls}; "
                              f"{Budget.reserve_calls} of them are kept for the reviewer and summary)")
@@ -128,6 +128,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error(f"--storage-state: {args.storage_state} not found; create it with --save-login")
     if args.pages < 1:
         parser.error("--pages must be at least 1")
+    if args.mode == "single" and (args.sample or args.process or args.sr_agent):
+        parser.error("--sample, --process and --sr-agent need --mode agent or code")
     if args.html_file and args.sample:
         parser.error("--sample only works with a URL")
     if args.seed is not None and not args.sample:
@@ -236,7 +238,7 @@ def configure_agentic(audit: AuditContext, args: argparse.Namespace, progress) -
     audit.measurement = args.measurement
     audit.allow_offsite = args.allow_offsite
     audit.sr_agent = set() if args.sr_agent else None
-    if args.mode == "agent":
+    if args.mode in ("agent", "single"):
         audit.budget = Budget(max_model_calls=args.budget_calls, max_minutes=args.budget_minutes, max_pages=args.max_pages)
     if (args.memory or "").lower() != "off":
         try:
