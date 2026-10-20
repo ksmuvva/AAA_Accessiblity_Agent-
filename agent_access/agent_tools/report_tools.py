@@ -16,6 +16,14 @@ from agent_access.rules.common import disclosure_groups
 SEVERITY = [Status.FAIL, Status.NEEDS_REVIEW, Status.NOT_TESTED, Status.PASS, Status.NOT_APPLICABLE]
 
 
+# When an agent may record needs_review: the lead's and specialists' prompts and the tools say the same. Evals showed
+# agents describing a defect in their own words and recording needs_review anyway; the reviewer re-checks every fail.
+NEEDS_REVIEW_RULE = ('"needs_review" only when the evidence that decides the criterion is out of your tools\' reach (e.g. '
+                     'the media has to be played, or the content is behind a sign-in you don\'t have), naming what a human '
+                     'must check. It is not for doubt about a defect you saw: if the page shows the defect, record "fail" '
+                     'with what you saw, because the reviewer re-checks every fail.')
+
+
 def add_manual_finding(
     audit: AuditContext,
     criterion: str,
@@ -66,7 +74,9 @@ def add_manual_finding(
     )
     audit.add_findings([finding])
     return {"recorded": finding.wcag_criterion, "status": finding.status.value, "page_url": audit.current_url,
-            **({"replaced_earlier_judgements": len(superseded)} if superseded else {})}
+            **({"replaced_earlier_judgements": len(superseded)} if superseded else {}),
+            **({"note": "If the page shows the defect, record fail instead: the reviewer re-checks every fail."}
+               if new_status is Status.NEEDS_REVIEW else {})}
 
 
 def _unopened_controls(audit: AuditContext) -> str | None:
@@ -272,8 +282,9 @@ def record_finding(
 
     Args:
         criterion: Criterion number such as "2.4.2".
-        status: "pass", "fail", "needs_review" when a human must decide, or "not_applicable" when the page
-            has no content the criterion applies to (say what you checked in evidence).
+        status: "pass", "fail" for a defect you saw, "not_applicable" when the page has no content the criterion
+            applies to (say what you checked in evidence), or "needs_review" only when the deciding evidence is out
+            of your tools' reach (a defect you saw is a fail).
         description: One-sentence statement of the result.
         evidence: What you observed on the page that supports the status.
         selectors: CSS selectors of the relevant elements; use an empty list if none.

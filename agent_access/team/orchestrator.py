@@ -33,7 +33,7 @@ from agent_access.models import AuditSummary, PagePick, SiteReport
 from agent_access.documents import check_documents
 from agent_access.sampling import wcag_em_sample
 from agent_access.agent_tools.planning import SPECIALIST_FOR_DOMAIN, open_items
-from agent_access.agent_tools.report_tools import compile_site_report
+from agent_access.agent_tools.report_tools import NEEDS_REVIEW_RULE, compile_site_report
 from agent_access.probes.screen_reader import ensure_nvda, use_nvda
 from agent_access.engine import run_site_tests, run_sweep
 
@@ -176,9 +176,9 @@ def continuation_prompt(page_key: str, items: dict, why: str = "Earlier work on 
     must end with, because a lead that can't decide a criterion tends to stop instead of recording needs_review."""
     return (f"Continue auditing {page_key}. {why} Still open ({items['open_count']}): "
             + ", ".join(f"{i['criterion']} {i['title']}" for i in items["open"]) + ".\n"
-            "Record a judgement for every one of them: pass, fail or not_applicable with your evidence, or needs_review "
-            "naming what a human must check when you can't decide. needs_review is a valid judgement; leaving a "
-            "criterion unjudged is not. record_findings records several in one call.")
+            "Record a judgement for every one of them: pass, fail or not_applicable with your evidence, or "
+            + NEEDS_REVIEW_RULE + " Leaving a criterion unjudged is not a judgement. record_findings records several "
+            "in one call.")
 
 
 async def _lead_runs(audit: AuditContext, page_key: str, model, max_turns: int, outcome: AuditOutcome,

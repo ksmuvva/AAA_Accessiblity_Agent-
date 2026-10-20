@@ -172,6 +172,10 @@ def render_markdown(outcome: AuditOutcome) -> str:
             lines.append(f"**Budget:** {budget['model_calls']} of {budget['max_model_calls']} model calls, "
                          f"{budget['elapsed_minutes']} of {budget['max_minutes']:g} minutes, page cap {budget['max_pages']}"
                          + (" (working budget exhausted)" if budget.get("exhausted") else "") + "  ")
+            for what in ("agent", "page"):
+                if counts := budget.get(f"by_{what}"):
+                    lines.append(f"Model calls by {what}: " + _md_escape(", ".join(
+                        f"{k} {n}" for k, n in sorted(counts.items(), key=lambda kv: -kv[1]))) + "  ")
         if plan_log:
             lines.append("The planner agent's decisions, in order:")
             lines += [f"- {_md_escape(_plan_line(e))}" for e in plan_log]

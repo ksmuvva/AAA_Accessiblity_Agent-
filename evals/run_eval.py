@@ -146,11 +146,12 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None, calls_left
             outcome = await run_audit(audit, model=args.model, reviewer_model=args.reviewer_model, mode=args.mode,
                                       review=not args.skip_review, progress=lambda m: print(f"  {m}", file=sys.stderr))
         model_calls = getattr(audit.budget, "model_calls", None)
+        calls_by_agent = dict(getattr(audit.budget, "by_agent", None) or {})
         models = audit.engines.get("Agent models")
     criteria = (outcome.report.criteria + outcome.report.beyond_target) if outcome.report else []
     actual = {c.wcag_criterion: c.status.value for c in criteria}
     result = {"name": case["name"], **score(case["expected"], actual), "errors": outcome.errors,
-              "warnings": outcome.warnings, "model_calls": model_calls, "models": models,
+              "warnings": outcome.warnings, "model_calls": model_calls, "calls_by_agent": calls_by_agent, "models": models,
               "reported": outcome.report is not None}
     # Why a row missed, kept in the results file so a miss can be explained without paying for a rerun.
     findings = {c.wcag_criterion: c.findings for c in criteria}
@@ -163,13 +164,17 @@ async def run_case(case: dict, args: argparse.Namespace, memory=None, calls_left
     return result
 
 
+def by_count(counts: dict[str, int]) -> str:
+    return ", ".join(f"{name} {n}" for name, n in sorted(counts.items(), key=lambda kv: -kv[1]))
+
+
 async def main_async(args: argparse.Namespace) -> int:
     spec = json.loads(Path(args.cases_file).read_text(encoding="utf-8"))
     cases = [c for c in spec["cases"] if not args.cases or c["name"] in args.cases]
     if not cases:
         print("No matching cases.", file=sys.stderr)
         return 2
-    results, totals, spent, stopped = [], Counter(), 0, 0
+    results, totals, spent, stopped, by_agent = [], Counter(), 0, 0, Counter()
     memory = None if args.mode == "baseline" else open_memory(args)
     runs = [c for c in cases for _ in range(args.repeats)]
     if args.mode != "baseline":
@@ -187,9 +192,14 @@ async def main_async(args: argparse.Namespace) -> int:
         for r in result["rows"]:
             mark = "" if r["outcome"] in ("caught", "correct_pass") else "   <--"
             print(f"  {r['criterion']:7} expected {r['expected']:5} got {r['actual']:15} {r['outcome']}{mark}")
+        if calls := result.get("calls_by_agent"):
+            print(f"  model calls: {result['model_calls']} ({by_count(calls)})")
+            by_agent.update(calls)
     summary = metrics(totals)
     print(f"\nRecall {summary['recall']} (95% {summary['recall_ci']})  Precision {summary['precision']}  "
           f"Decided {summary['decided']}  False passes {summary['false_passes']} (rate 95% {summary['false_pass_rate_ci']})")
+    if by_agent:
+        print(f"Model calls by agent: {by_count(by_agent)}")
     lessons = sum(r["lessons_written"] for r in results)
     if memory is not None:
         print(f"Lessons written to {memory.path}: {lessons}" + ("  (scored WITH past lessons)" if args.use_lessons else ""))
@@ -198,7 +208,7 @@ async def main_async(args: argparse.Namespace) -> int:
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"eval-{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps({"git_commit": git_commit(), "versions": versions(), "repeats": args.repeats,
-                               "max_calls": args.max_calls, "model_calls": spent, "not_started": stopped,
+                               "max_calls": args.max_calls, "model_calls": spent, "calls_by_agent": dict(by_agent), "not_started": stopped,
                                "mode": args.mode, "measurement": args.measurement, "interaction": not args.no_interaction,
                                "model": args.model or os.environ.get("OPENAI_MODEL"), "reviewer_model": args.reviewer_model,
                                "metrics": summary, "totals": dict(totals), "cases": results,

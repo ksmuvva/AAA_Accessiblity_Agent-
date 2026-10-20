@@ -17,7 +17,7 @@ from agent_access.team.guardrails import apply_guardrails
 from agent_access.team.specialists import build_specialist, parallel_tool, specialist_tools
 from agent_access.agent_tools import INSPECTION_TOOLS, INTERACTION_TOOLS
 from agent_access.agent_tools.planning import get_open_items
-from agent_access.agent_tools.report_tools import record_finding, record_findings
+from agent_access.agent_tools.report_tools import NEEDS_REVIEW_RULE, record_finding, record_findings
 from agent_access.agent_tools.verify_tools import evaluate_js
 from agent_access.context import AuditContext, Delegation
 from agent_access.engine import criterion_tools_for
@@ -87,8 +87,8 @@ Three kinds of judgement:
   pass if it did and you see no defect, needs_review naming what it missed, or fail for a defect you observed.
 - A not-applicable result: confirm from the screenshot, outline and accessibility tree that the page really has
   no such content, then record not_applicable (say what you checked), or judge it.
-Use "pass" only when evidence clearly supports it, "fail" only for a defect you observed directly,
-"needs_review" when you can't decide, "not_applicable" when the page has no relevant content. A defect the check
+Use "pass" only when evidence clearly supports it, "fail" for a defect you observed directly, "not_applicable" when
+the page has no relevant content, and {needs_review} A defect the check
 flagged that you then confirmed on the page is a fail, not needs_review; so is one a check saw while it submitted a
 form or opened a control (its recorded results are observations, though a reload has cleared them). Use
 record_findings to record several criteria you have read, each with its own evidence.
@@ -148,7 +148,7 @@ def _instructions(ctx: RunContextWrapper[AuditContext], agent: Agent[AuditContex
     audit = ctx.context
     handoffs = {h.tool_name for h in agent.handoffs}
     explorer = "explore_page" in handoffs | {t.name for t in agent.tools}   # a handoff, or a tool with --delegation tools
-    return (INSTRUCTIONS.replace("{level}", audit.target_level)
+    return (INSTRUCTIONS.replace("{level}", audit.target_level).replace("{needs_review}", NEEDS_REVIEW_RULE)
             .replace("{delegation}", DELEGATION_HANDOFF if "audit_forms" in handoffs else DELEGATION_TOOLS)
             .replace("{subagents}", SUBAGENTS_SECTION if explorer else "")
             .replace("{process}", PROCESS_SECTION if audit.allow_interaction else ""))
