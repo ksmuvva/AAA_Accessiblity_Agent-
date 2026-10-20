@@ -42,6 +42,7 @@ from agent_access.catalogue.catalogue import LEVEL_ORDER
 from agent_access.context import AuditContext, is_state_key, run_parallel
 from agent_access.engine import run_site_tests, sweep_summary
 from agent_access.memory import MEMORY_TOOLS, remember_run
+from agent_access.documents import check_documents
 from agent_access.sampling import wcag_em_sample
 from agent_access.team.guardrails import apply_guardrails, scrub
 from agent_access.team.runtime import run_config, settings
@@ -757,6 +758,8 @@ async def run_agentic_audit(audit: AuditContext, *, pages: int = 1, process: str
     outcome.lead_notes += state.lead_notes
     outcome.review_log = state.review_log
     outcome.errors += state.errors
+    outcome.documents, unchecked = await check_documents(audit)
+    outcome.warnings += unchecked
     outcome.tool_runs = audit.tool_runs
     outcome.engines = dict(audit.engines)
     outcome.report = compile_site_report(audit)

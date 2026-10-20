@@ -150,6 +150,19 @@ def render_markdown(outcome: AuditOutcome) -> str:
                   f"{len(sample['templates'])} URL templates.", ""]
         lines += [f"- Structured: {_md_escape(u)}" for u in sample["structured"]]
         lines += [f"- Random: {_md_escape(u)}" for u in sample["random"]] + [""]
+    if documents := getattr(outcome, "documents", []):
+        lines += ["## Linked documents", "", "Same-site PDFs the audited pages link to, validated against PDF/UA-1 by "
+                  "veraPDF. Their results are not part of the pages' criteria above.", ""]
+        for d in documents:
+            if not d["checked"]:
+                lines.append(f"- {_md_escape(d['url'])}: not checked ({_md_escape(d['reason'])})")
+                continue
+            failed = d["failed_rules"]
+            lines.append(f"- {_md_escape(d['url'])}: " + (f"meets PDF/UA-1 ({d['passed_rules']} rules passed)" if d["compliant"]
+                         else f"{len(failed)} PDF/UA-1 rule(s) failed"))
+            lines += [f"  - {r['clause']}-{r['test']}" + (f" (WCAG {', '.join(r['criteria'])})" if r["criteria"] else "")
+                      + f": {_md_escape(r['description'])} ({r['checks']} check(s))" for r in failed]
+        lines.append("")
 
     plan_log, budget = getattr(outcome, "plan_log", []), getattr(outcome, "budget_used", None)
     tripwires = getattr(outcome, "tripwires", [])
@@ -235,6 +248,7 @@ def write_reports(out_dir: Path, outcome: AuditOutcome) -> tuple[Path, Path]:
         "tripwires": getattr(outcome, "tripwires", []),
         "memory": getattr(outcome, "memory", None),
         "sample": getattr(outcome, "sample", None),
+        "documents": getattr(outcome, "documents", []),
         "report": outcome.report.model_dump(mode="json"),
     }
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
