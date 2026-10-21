@@ -73,6 +73,25 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
+## Tools for Claude sessions
+
+Use these when they are installed; skip any that aren't, and say so.
+
+- **Graphify (MCP, `repository_id` `ksmuvva/AAA_Accessiblity_Agent-`): look before you read.** `graphify_find` for where a symbol lives,
+  `query_graph` for how a behaviour works, `graphify_callers`/`graphify_callees` before changing a function, `impact_and_risk` and
+  `graphify_tests_for` to pick the tests to run. It reflects the last indexed commit (see `freshness`), never uncommitted work:
+  confirm in the file before editing, and grep before calling anything unused.
+- **Ponytail: the smallest complete change.** It agrees with the guidelines above. `/ponytail-review` on a diff before a PR,
+  `/ponytail-audit` for a whole-repo audit (report only).
+- **Skills by task** (Addy Osmani's `agent-skills` plugin and the built-ins):
+  - Unclear ask: `interview-me`, `idea-refine`. New feature: `spec`, then `plan`.
+  - Build: `incremental-implementation` and `test-driven-development`. Every fix gets a test that fails without it (tests passed
+    with known wrong-PASS bugs, so a green suite isn't proof).
+  - Bug: `debugging-and-error-recovery`. Interaction/network-guard or prompt changes: `security-and-hardening`.
+  - Before a PR: `/code-review`, `/security-review`, `/simplify`; `git-workflow-and-versioning` for commits.
+- **Docs:** Context7 for `openai-agents` (`/openai/openai-agents-python`), Playwright and pydantic, at the versions in
+  `constraints.txt`, not from memory. **Code intelligence:** the `pyright-lsp` plugin. **Earlier sessions:** `claude-mem:mem-search`.
+
 ## Commands
 
 - Install: `pip install -r requirements.txt`, then `playwright install chromium`.
@@ -203,7 +222,7 @@ code can't tell you (gotchas, non-obvious contracts, how to run and test it); ev
 
 <!-- G1 start -->
 ### G1 Orchestration, planner, goals, budget
-- `cli` defaults to `--mode agent`: `run_audit(mode="agent")` opens and measures the start page, then hands the run to `team/planner.py`. `run_audit`'s own default is `code` (today's flow; `tests/test_agent.py` relies on it).
+- `--mode agent` (the CLI default is `single`): `run_audit(mode="agent")` opens and measures the start page, then hands the run to `team/planner.py`. `run_audit`'s own default is `code` (today's flow; `tests/test_agent.py` relies on it).
 - The planner (`"You are the audit planner"`, output `PlanReport`) decides pages, order, flows, review, summary, `finish`. Code floors stay: start page always measured; `audit_pages` (`run_lead_on`) re-runs the lead on a page with code mode's rule (one continuation always, more while a run settles something, up to `LEAD_RUNS_PER_PAGE`), then marks it `exhausted`; `finish` refuses while a planner-opened page or a rebuildable labelled state is neither done, exhausted nor an accepted skip (`skip_pages`: the planner gives a reason per page, the skip reviewer (`"You are the skip reviewer"`) accepts or rejects it from `page_profile`s; a review error rejects, so the old floor applies; accepted skips become coverage warnings with the reason); a labelled state that can't be rebuilt doesn't block it; `set_goal` only grows; reviewer and summary run even if the planner skips them; coverage warnings include "never measured".
 - `budget.charge_model_call` (called by `runtime.trim_input`) counts every call by agent and by page (`by_agent`, `by_page` in `budget_used`) and raises `BudgetExhausted` for working agents at the soft limit; planner, reviewer and summary writer keep `reserve_calls`. Test offline: `tests/test_agentic_planner.py`, `tests/test_agentic_harness.py` (RouterModel).
 <!-- G1 end -->
