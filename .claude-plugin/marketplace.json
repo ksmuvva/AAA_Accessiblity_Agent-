@@ -1,0 +1,5 @@
+{
+  "name": "agent-access-mods",
+  "owner": { "name": "ksmuvva" },
+  "plugins": [{ "name": "a11y-guard", "source": "./mods/a11y-guard" }]
+}

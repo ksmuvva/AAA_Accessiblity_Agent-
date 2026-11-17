@@ -1,0 +1,5 @@
+{
+  "name": "a11y-guard",
+  "version": "0.1.0",
+  "description": "Guards for the accessibility agent repo: no top-level `agents` module, a catalogue sync reminder, and a confirmation before paid or traced runs."
+}
