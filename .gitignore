@@ -7,4 +7,5 @@ nvda_bridge/node_modules/
 evals/results/
 repomix-output.xml
 diagnostics/
-.claude/
+.claude/*
+!.claude/settings.json
